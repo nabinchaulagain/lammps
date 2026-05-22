@@ -1164,8 +1164,6 @@ void fourier_poly(double tol_coeff, const double &c, double &lambda,
 void spread_fourier_poly(double tol_coeff, const double &c, double &lambda,
                          std::vector<double> &coeffs)
 {
-  double c0 = prolate0_int_eval(c, 1.0);
-
   int quad_npts = 200;
   std::vector<double> xs(quad_npts, 0), ws(quad_npts, 0);
   gaussian_quadrature(quad_npts, xs.data(), ws.data());
