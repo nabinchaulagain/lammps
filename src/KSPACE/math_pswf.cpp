@@ -15,7 +15,6 @@
 using LAMMPS_NS::MathConst::MY_PI;
 
 static constexpr int MAX_CHEB_ORDER = 40;
-static constexpr int MAX_MONO_ORDER = 40;
 
 // start of legendre functions
 static inline void legepol(double x, int n, double &pol, double &der)
@@ -366,7 +365,7 @@ static inline void monomial_interp_1d(int nnodes, std::vector<double> &fn_v,
 
   std::vector<double> newton_coeffs = fn_v;
 
-  if (coeff.size() != dof * nnodes) coeff.resize(dof * nnodes);
+  if ((int)coeff.size() != dof * nnodes) coeff.resize(dof * nnodes);
   coeff.assign(dof * nnodes, 0.0);
 
   // Turner, L. R.. “Inverse of the Vandermonde matrix with applications.” (1966)
