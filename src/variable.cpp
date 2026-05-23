@@ -730,27 +730,30 @@ int Variable::set_string(const char *name, const char *str)
 
 int Variable::next(int narg, char **arg)
 {
-  int ivar;
-
   if (narg == 0) utils::missing_cmd_args(FLERR, "next", error);
 
   // check that variables exist and are all the same style
   // exception: UNIVERSE and ULOOP variables can be mixed in same next command
 
-  for (int iarg = 0; iarg < narg; iarg++) {
+  int ivar = find(arg[0]);
+  if (ivar < 0)
+    error->all(FLERR, Error::ARGZERO, "Invalid variable '{}' in next command",arg[0]);
+  const auto &varzero = variables[ivar];
+
+  for (int iarg = 1; iarg < narg; iarg++) {
     ivar = find(arg[iarg]);
     if (ivar < 0)
-      error->all(FLERR, iarg, "Invalid variable '{}' in next command",arg[iarg]);
-    if (variables[ivar].style == ULOOP && variables[find(arg[0])].style == UNIVERSE) continue;
-    else if (variables[ivar].style == UNIVERSE && variables[find(arg[0])].style == ULOOP) continue;
-    else if (variables[ivar].style != variables[find(arg[0])].style)
+      error->all(FLERR, iarg, "Invalid variable '{}' in next command", arg[iarg]);
+    if (variables[ivar].style == ULOOP && varzero.style == UNIVERSE) continue;
+    else if (variables[ivar].style == UNIVERSE && varzero.style == ULOOP) continue;
+    else if (variables[ivar].style != varzero.style)
       error->all(FLERR,"All variables in next command must have same style");
   }
 
   // invalid styles: STRING, EQUAL, WORLD, GETENV, ATOM, VECTOR,
   //                 FORMAT, PYTHON, TIMER, INTERNAL
 
-  int istyle = variables[find(arg[0])].style;
+  int istyle = varzero.style;
   if (istyle == STRING || istyle == EQUAL ||
       istyle == WORLD || istyle == GETENV || istyle == ATOM ||
       istyle == VECTOR || istyle == FORMAT || istyle == PYTHON ||
@@ -825,7 +828,7 @@ int Variable::next(int narg, char **arg)
 
     int nextindex = -1;
     if (me == 0) {
-      int seed = 12345 + universe->me + variables[find(arg[0])].which;
+      int seed = 12345 + universe->me + varzero.which;
       if (!random) random = new RanMars(lmp,seed);
       int delay = (int) (1000000*random->uniform());
       platform::usleep(delay);
