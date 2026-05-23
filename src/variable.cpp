@@ -931,8 +931,8 @@ void Variable::set_arrays(int /*i*/)
 
 void Variable::purge_atomfile()
 {
-  for (int i = get_nvar()-1; i >= 0; --i)
-    if (variables[i].style == ATOMFILE) remove(i);
+  for (auto &ivar : variables)
+    if (ivar.style == ATOMFILE) ivar.clear();
 }
 
 /* ----------------------------------------------------------------------
