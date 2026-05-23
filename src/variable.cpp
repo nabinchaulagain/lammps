@@ -1353,15 +1353,16 @@ int Variable::internal_create(char *name, double value)
                "Creation of internal-style variable {} which already exists", name);
 
   ivar = recycle();
-  variables[ivar].num = 1;
-  variables[ivar].which = 0;
-  variables[ivar].pad = 0;
-  variables[ivar].data = new char *[variables[ivar].num];
-  variables[ivar].data[0] = new char[VALUELENGTH];
-  variables[ivar].dvalue = value;
+  auto &newvar = variables[ivar];
 
-  variables[ivar].name = name;
-  variables[ivar].style = INTERNAL;
+  newvar.num = 1;
+  newvar.which = 0;
+  newvar.pad = 0;
+  newvar.data = new char *[newvar.num];
+  newvar.data[0] = new char[VALUELENGTH];
+  newvar.dvalue = value;
+  newvar.name = name;
+  newvar.style = INTERNAL;
   return ivar;
 }
 
