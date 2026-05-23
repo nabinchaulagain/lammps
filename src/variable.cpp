@@ -5315,15 +5315,14 @@ void Variable::parse_vector(int ivar, char *str)
     error->all(FLERR,"Vector variable formula lacks opening or closing brace: {}", str);
   std::vector<std::string> args = Tokenizer(std::string(str+1, str+nstr), ",").as_vector();
 
-  int nvec = args.size();
-  variables[ivar].vec.n = nvec;
-  variables[ivar].vec.nmax = nvec;
-  variables[ivar].vec.currentstep = -1;
-  delete[] variables[ivar].vec.values;
-  variables[ivar].vec.values = new double[variables[ivar].vec.nmax];
+  auto &var = variables[ivar];
+  var.vec.n = var.vec.nmax = args.size();
+  var.vec.currentstep = -1;
+  delete[] var.vec.values;
+  var.vec.values = new double[var.vec.nmax];
 
-  for (int i = 0; i < nvec; i++)
-    variables[ivar].vec.values[i] = utils::numeric(FLERR, utils::trim(args[i]), false, lmp);
+  for (int i = 0; i < var.vec.nmax; i++)
+    var.vec.values[i] = utils::numeric(FLERR, utils::trim(args[i]), false, lmp);
 }
 
 /* ----------------------------------------------------------------------
