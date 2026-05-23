@@ -966,10 +966,11 @@ void Variable::python_command(int narg, char **arg)
 
 int Variable::equalstyle(int ivar)
 {
-  if (variables[ivar].style == EQUAL || variables[ivar].style == TIMER || variables[ivar].style == INTERNAL) return 1;
-  if (variables[ivar].style == PYTHON) {
-    variables[ivar].pyindex = python->function_match(variables[ivar].data[0], variables[ivar].name.c_str(), 1, error);
-    if (variables[ivar].pyindex >= 0) return 1;
+  auto &var = variables[ivar];
+  if ((var.style == EQUAL) || (var.style == TIMER) || (var.style == INTERNAL)) return 1;
+  if (var.style == PYTHON) {
+    var.pyindex = python->function_match(var.data[0], var.name.c_str(), 1, error);
+    if (var.pyindex >= 0) return 1;
   }
 
   return 0;
