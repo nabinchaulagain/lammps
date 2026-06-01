@@ -488,10 +488,7 @@ void PairLdd::ErrorDoubleKeyword(const char *keyword)
 
 void PairLdd::ErrorNumKeywordArgs(const char *keyword, const char *arglist)
 {
-  std::string errmsg = fmt::format(
-      "Expected {} to be followed by: {}\n Error: Invalid or missing arguments to keyword {}\n",
-      keyword, arglist, keyword);
-  error->all(FLERR, errmsg);
+  error->all(FLERR, "ldd pair_coeff keyword {} must be followed by: {}", keyword, arglist);
 }
 
 /* ---------------------------------------------------------------------- */
