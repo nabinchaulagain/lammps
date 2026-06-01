@@ -483,11 +483,7 @@ template <typename T> LddPotential *PairLdd::potential_creator(LAMMPS *lmp)
 
 void PairLdd::ErrorDoubleKeyword(const char *keyword)
 {
-  //  char *errmsg = (char *) calloc(100,sizeof(char));
-  //  sprintf(errmsg,"Found keyword %s twice!\n"
-  //                 "Error: double keyword\n",keyword);
-  std::string errmsg = fmt::format("Found keyword {} twice!\nError: double keyword\n", keyword);
-  error->all(FLERR, errmsg);
+  error->all(FLERR, "Found ldd pair_coeff keyword {} twice", keyword);
 }
 
 void PairLdd::ErrorNumKeywordArgs(const char *keyword, const char *arglist)
