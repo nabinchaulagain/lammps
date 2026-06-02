@@ -36,12 +36,15 @@ namespace {
   // map for counting references to dso handles
   std::map<void *, int> dso_refcounter;
 
-  // serializes mutations of pluginlist / dso_refcounter so that concurrent
-  // LAMMPS instances can load or unload plugins at the same time.  Only the
-  // top-level entry points (plugin_register, plugin_unload) take this lock; the
-  // helpers they call (plugin_find, plugin_erase, plugin_get_info) assume it is
-  // already held.  RAII (std::lock_guard) guarantees the lock is released even
-  // if an error handler throws out of the critical section.
+  // serializes all access to pluginlist / dso_refcounter so that concurrent
+  // LAMMPS instances can load, unload, or list plugins at the same time.  Every
+  // entry point that touches these containers (plugin_register, plugin_unload,
+  // plugin_clear, plugin_finalize, and the "plugin list" command) takes this
+  // lock; the helpers they call while holding it (plugin_find, plugin_erase,
+  // plugin_get_info, plugin_get_num_plugins, plugin_unload_locked) assume it is
+  // already held and must not re-acquire it.  RAII (std::lock_guard) guarantees
+  // the lock is released even if an error handler throws out of the critical
+  // section.
   std::mutex plugin_mutex;
 
   bool verbose = true;
@@ -78,6 +81,7 @@ void Plugin::command(int narg, char **arg)
 
   } else if (cmd == "list") {
     if (comm->me == 0) {
+      std::lock_guard<std::mutex> guard(plugin_mutex);
       int num = plugin_get_num_plugins();
       utils::logmesg(lmp, "Currently loaded plugins: {}\n", num);
       for (int i = 0; i < num; ++i) {
@@ -289,6 +293,163 @@ void plugin_register(lammpsplugin_t *plugin, void *ptr)
      must also delete style instances if style is currently active
      -------------------------------------------------------------------- */
 
+#if defined(LMP_PLUGIN)
+// unload a single plugin.  the caller must already hold plugin_mutex.
+
+static void plugin_unload_locked(const char *style, const char *name, LAMMPS *lmp)
+{
+  int me = lmp->comm->me;
+
+  // ignore unload request from unsupported style categories
+  if ((strcmp(style, "pair") != 0) && (strcmp(style, "bond") != 0) &&
+      (strcmp(style, "angle") != 0) && (strcmp(style, "dihedral") != 0) &&
+      (strcmp(style, "improper") != 0) && (strcmp(style, "kspace") != 0) &&
+      (strcmp(style, "compute") != 0) && (strcmp(style, "fix") != 0) &&
+      (strcmp(style, "region") != 0) && (strcmp(style, "command") != 0) &&
+      (strcmp(style, "run") != 0) && (strcmp(style, "min") != 0)) {
+    if (me == 0)
+      utils::logmesg(lmp, "Ignoring unload: {} is not a supported plugin style\n", style);
+    return;
+  }
+
+  // ignore unload request if not loaded from a plugin
+  int idx = plugin_find(style, name);
+  if (idx < 0) {
+    if (me == 0)
+      utils::logmesg(lmp, "Ignoring unload of {} style {}: not from a plugin\n", style, name);
+    return;
+  }
+
+  // make copy of DSO handle for later use
+  void *handle = plugin_get_info(idx)->handle;
+
+  // remove selected plugin from list of plugins
+
+  if (verbose && (me == 0)) utils::logmesg(lmp, "Unloading {} style {}\n", style, name);
+  plugin_erase(style, name);
+
+  // remove style of given name from corresponding map
+  // must delete style instance if currently active so
+  // we can close the DSO handle if the last reference is gone.
+
+  std::string pstyle = style;
+  if (pstyle == "pair") {
+
+    // must delete pair style instance if in use
+
+    if (lmp->force->pair_style) {
+      if (utils::strmatch(lmp->force->pair_style, "^hybrid")) {
+        if (lmp->force->pair_match(name, 1, 1) != nullptr) lmp->force->create_pair("none", 0);
+      } else {
+        if (strcmp(lmp->force->pair_style, name) == 0) lmp->force->create_pair("none", 0);
+      }
+    }
+
+    Force::pair_styles().clear_plugin(name);
+
+  } else if (pstyle == "bond") {
+
+    // must delete bond style instance if in use
+
+    if ((lmp->force->bond_style != nullptr) && (lmp->force->bond_match(name) != nullptr))
+      lmp->force->create_bond("none", 0);
+
+    Force::bond_styles().clear_plugin(name);
+
+  } else if (pstyle == "angle") {
+
+    // must delete angle style instance if in use
+
+    if ((lmp->force->angle_style != nullptr) && (lmp->force->angle_match(name) != nullptr))
+      lmp->force->create_angle("none", 0);
+
+    Force::angle_styles().clear_plugin(name);
+
+  } else if (pstyle == "dihedral") {
+
+    // must delete dihedral style instance if in use
+
+    if ((lmp->force->dihedral_style) && (lmp->force->dihedral_match(name) != nullptr))
+      lmp->force->create_dihedral("none", 0);
+
+    Force::dihedral_styles().clear_plugin(name);
+
+  } else if (pstyle == "improper") {
+
+    // must delete improper style instance if in use
+
+    if ((lmp->force->improper_style != nullptr) && (lmp->force->improper_match(name) != nullptr))
+      lmp->force->create_improper("none", 0);
+
+    Force::improper_styles().clear_plugin(name);
+
+  } else if (pstyle == "kspace") {
+
+    // must delete kspace style instance if in use
+
+    if ((lmp->force->kspace_style != nullptr) && (lmp->force->kspace_match(name, 1) != nullptr))
+      lmp->force->create_kspace("none", 0);
+
+    Force::kspace_styles().clear_plugin(name);
+
+  } else if (pstyle == "compute") {
+
+    // must delete all compute instances using this compute style
+
+    for (const auto &icompute : lmp->modify->get_compute_by_style(name))
+      lmp->modify->delete_compute(icompute->id);
+
+    Modify::compute_styles().clear_plugin(name);
+
+  } else if (pstyle == "fix") {
+
+    // must delete all fix instances using this fix style
+
+    for (const auto &ifix : lmp->modify->get_fix_by_style(name)) lmp->modify->delete_fix(ifix->id);
+
+    Modify::fix_styles().clear_plugin(name);
+
+  } else if (pstyle == "region") {
+
+    // must delete all region instances using this region style
+
+    for (const auto &iregion : lmp->domain->get_region_by_style(name))
+      lmp->domain->delete_region(iregion);
+
+    Domain::region_styles().clear_plugin(name);
+
+  } else if (pstyle == "command") {
+
+    Input::command_styles().clear_plugin(name);
+
+  } else if (pstyle == "run") {
+
+    // must restore default run style if plugin style is in use
+
+    if (strcmp(name, lmp->update->integrate_style) == 0) {
+      char *str = (char *) "verlet";
+      lmp->update->create_integrate(1, &str, 1);
+    }
+    Update::integrate_styles().clear_plugin(name);
+
+  } else if (pstyle == "min") {
+
+    // must restore default minimize style if plugin style is in use
+
+    if (strcmp(name, lmp->update->minimize_style) == 0) {
+      char *str = (char *) "cg";
+      lmp->update->create_minimize(1, &str, 1);
+    }
+    Update::minimize_styles().clear_plugin(name);
+  }
+
+  // if reference count is down to zero, close DSO handle.
+
+  --dso_refcounter[handle];
+  if (dso_refcounter[handle] == 0) { platform::dlclose(handle); }
+}
+#endif
+
 void plugin_unload(const char *style, const char *name, LAMMPS *lmp)
 {
 #if defined(LMP_PLUGIN)
@@ -451,13 +612,16 @@ void plugin_unload(const char *style, const char *name, LAMMPS *lmp)
 
 void plugin_clear(LAMMPS *lmp)
 {
+#if defined(LMP_PLUGIN)
+  std::lock_guard<std::mutex> guard(plugin_mutex);
   bool oldverbose = verbose;
   verbose = true;
   while (pluginlist.size() > 0) {
     auto p = pluginlist.begin();
-    plugin_unload(p->style, p->name, lmp);
+    plugin_unload_locked(p->style, p->name, lmp);
   }
   verbose = oldverbose;
+#endif
 }
 
 /* --------------------------------------------------------------------
@@ -467,6 +631,7 @@ void plugin_clear(LAMMPS *lmp)
 void plugin_finalize()
 {
 #if defined(LMP_PLUGIN)
+  std::lock_guard<std::mutex> guard(plugin_mutex);
   while (pluginlist.size() > 0) {
     auto p = pluginlist.begin();
 
