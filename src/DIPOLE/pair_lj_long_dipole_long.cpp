@@ -263,11 +263,11 @@ void PairLJLongDipoleLong::init_style()
 
 double PairLJLongDipoleLong::init_one(int i, int j)
 {
-  if ((ewald_order&(1<<6))||(setflag[i][j] == 0)) {
+  if ((ewald_order & EWALD_DISP)||(setflag[i][j] == 0)) {
     epsilon[i][j] = mix_energy(epsilon_read[i][i],epsilon_read[j][j],
                                sigma_read[i][i],sigma_read[j][j]);
     sigma[i][j] = mix_distance(sigma_read[i][i],sigma_read[j][j]);
-    if (ewald_order&(1<<6))
+    if (ewald_order & EWALD_DISP)
       cut_lj[i][j] = cut_lj_global;
     else
       cut_lj[i][j] = mix_distance(cut_lj_read[i][i],cut_lj_read[j][j]);
