@@ -79,22 +79,22 @@ void PairLJLongDipoleLong::settings(int narg, char **arg)
   ewald_order = 0;
   ewald_off = 0;
 
-  options(arg, 6);
-  options(++arg, 3);
-  options(arg, 1);
+  options(arg, EWALD_DISP);
+  options(++arg, EWALD_DIPOLE);
+  options(arg, EWALD_COUL);
 
-  if (!comm->me && ewald_order&(1<<6))
+  if (!comm->me && ewald_order & EWALD_DISP)
     error->warning(FLERR,"Geometric mixing assumed for 1/r^6 coefficients" + utils::errorurl(21));
-  if (!comm->me && ewald_order==((1<<3)|(1<<6)))
+  if (!comm->me && ewald_order == (EWALD_DIPOLE | EWALD_DISP))
     error->warning(FLERR,"Using largest cut-off for lj/long/dipole/long long long");
   if (!*(++arg))
     error->all(FLERR,"Cutoffs missing in pair_style lj/long/dipole/long");
-  if (!((ewald_order^ewald_off) & (1<<6)))
+  if (!((ewald_order^ewald_off) & EWALD_DISP))
     dispersionflag = 0;
-  if (!((ewald_order^ewald_off)&(1<<3)))
+  if (!((ewald_order^ewald_off) & EWALD_DIPOLE))
     error->all(FLERR,"Coulombic cut not supported in pair_style lj/long/dipole/long");
   cut_lj_global = utils::numeric(FLERR,*(arg++),false,lmp);
-  if (narg == 4 && (ewald_order==0x4a))
+  if (narg == 4 && (ewald_order == (EWALD_COUL | EWALD_DIPOLE | EWALD_DISP)))
     error->all(FLERR,"Only one cut-off allowed when requesting all long");
   if (narg == 4) cut_coul = utils::numeric(FLERR,*(arg++),false,lmp);
   else cut_coul = cut_lj_global;
