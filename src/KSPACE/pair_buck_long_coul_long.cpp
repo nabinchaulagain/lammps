@@ -985,7 +985,7 @@ double PairBuckLongCoulLong::single(int i, int j, int itype, int jtype,
   r2inv = 1.0/rsq;
   double eng = 0.0;
 
-  if ((ewald_order&2) && (rsq < cut_coulsq)) {                // coulombic
+  if ((ewald_order & EWALD_COUL) && (rsq < cut_coulsq)) {     // coulombic
     if (!ncoultablebits || rsq <= tabinnersq) {                // series real space
       double x = g_ewald*r;
       double s = force->qqrd2e*q[i]*q[j], t = 1.0/(1.0+EWALD_P*x);
@@ -1006,7 +1006,7 @@ double PairBuckLongCoulLong::single(int i, int j, int itype, int jtype,
   if (rsq < cut_bucksq[itype][jtype]) {                        // buckingham
     double expr = factor_buck*exp(-sqrt(rsq)*rhoinv[itype][jtype]);
     r6inv = r2inv*r2inv*r2inv;
-    if (ewald_order&64) {                                // long-range
+    if (ewald_order & EWALD_DISP) {                      // long-range
       double x2 = g2*rsq, a2 = 1.0/x2, t = r6inv*(1.0-factor_buck);
       x2 = a2*exp(-x2)*buck_c[itype][jtype];
       force_buck = buck1[itype][jtype]*r*expr-
