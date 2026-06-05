@@ -649,15 +649,12 @@ void PairBuckLongCoulLongOMP::eval(int iifrom, int iito, ThrData * const thr)
   const double * const special_lj = force->special_lj;
   const double qqrd2e = force->qqrd2e;
 
-  const double *x0 = x[0];
-  double *f0 = f[0], *fi = f0;
-
   int *ilist = list->ilist;
 
   // loop over neighbors of my atoms
 
-  int i, ii, j;
-  int *jneigh, *jneighn, typei, typej, ni;
+  int i, ii, j, jj;
+  int typei, typej, ni;
   double qi = 0.0, qri = 0.0, *cutsqi, *cut_bucksqi,
          *buck1i, *buck2i, *buckai, *buckci, *rhoinvi, *offseti;
   double r, rsq, r2inv, force_coul, force_buck;
@@ -665,26 +662,29 @@ void PairBuckLongCoulLongOMP::eval(int iifrom, int iito, ThrData * const thr)
   double xi[3], d[3];
 
   for (ii = iifrom; ii < iito; ++ii) {                        // loop over my atoms
-    i = ilist[ii]; fi=f0+3*i;
+    i = ilist[ii];
     if (ORDER1) qri = (qi = q[i])*qqrd2e;                // initialize constants
-    offseti = offset[typei = type[i]];
+    typei = type[i];
+    offseti = offset[typei];
     buck1i = buck1[typei]; buck2i = buck2[typei];
-    buckai = buck_a[typei]; buckci = buck_c[typei], rhoinvi = rhoinv[typei];
+    buckai = buck_a[typei]; buckci = buck_c[typei]; rhoinvi = rhoinv[typei];
     cutsqi = cutsq[typei]; cut_bucksqi = cut_bucksq[typei];
-    memcpy(xi, x0+(i+(i<<1)), 3*sizeof(double));
-    jneighn = (jneigh = list->firstneigh[i])+list->numneigh[i];
+    xi[0] = x[i][0]; xi[1] = x[i][1]; xi[2] = x[i][2];
+    int *jlist = list->firstneigh[i];
+    int jnum = list->numneigh[i];
 
-    for (; jneigh<jneighn; ++jneigh) {                        // loop over neighbors
-      j = *jneigh;
+    for (jj = 0; jj < jnum; jj++) {                           // loop over neighbors
+      j = jlist[jj];
       ni = sbmask(j);
       j &= NEIGHMASK;
 
-      { const double *xj = x0+(j+(j<<1));
-        d[0] = xi[0] - xj[0];                                // pair vector
-        d[1] = xi[1] - xj[1];
-        d[2] = xi[2] - xj[2]; }
+      d[0] = xi[0] - x[j][0];                                 // pair vector
+      d[1] = xi[1] - x[j][1];
+      d[2] = xi[2] - x[j][2];
 
-      if ((rsq = dot3(d, d)) >= cutsqi[typej = type[j]]) continue;
+      rsq = dot3(d, d);
+      typej = type[j];
+      if (rsq >= cutsqi[typej]) continue;
       r2inv = 1.0/rsq;
       r = sqrt(rsq);
 
@@ -766,15 +766,14 @@ void PairBuckLongCoulLongOMP::eval(int iifrom, int iito, ThrData * const thr)
 
       fpair = (force_coul+force_buck)*r2inv;
 
+      double fdx = d[0]*fpair, fdy = d[1]*fpair, fdz = d[2]*fpair;
+      f[i][0] += fdx;
+      f[i][1] += fdy;
+      f[i][2] += fdz;
       if (NEWTON_PAIR || j < nlocal) {
-        double *fj = f0+(j+(j<<1)), f;
-        fi[0] += f = d[0]*fpair; fj[0] -= f;
-        fi[1] += f = d[1]*fpair; fj[1] -= f;
-        fi[2] += f = d[2]*fpair; fj[2] -= f;
-      } else {
-        fi[0] += d[0]*fpair;
-        fi[1] += d[1]*fpair;
-        fi[2] += d[2]*fpair;
+        f[j][0] -= fdx;
+        f[j][1] -= fdy;
+        f[j][2] -= fdz;
       }
 
       if (EVFLAG) ev_tally_thr(this,i,j,nlocal,NEWTON_PAIR,
