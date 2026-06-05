@@ -757,10 +757,10 @@ void PairLJLongCoulLong::compute_middle()
 
       typej = type[j];
       if (rsq < cut_ljsqi[typej]) {                          // lennard-jones
-        double rn = r2inv*r2inv*r2inv;
+        double r6inv = r2inv*r2inv*r2inv;
         force_lj = ni == 0 ?
-          rn*(rn*lj1i[typej]-lj2i[typej]) :
-          rn*(rn*lj1i[typej]-lj2i[typej])*special_lj[ni];
+          r6inv*(r6inv*lj1i[typej]-lj2i[typej]) :
+          r6inv*(r6inv*lj1i[typej]-lj2i[typej])*special_lj[ni];
       } else force_lj = 0.0;
 
       fpair = (force_coul + force_lj) * r2inv;
