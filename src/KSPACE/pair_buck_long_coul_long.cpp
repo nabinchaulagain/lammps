@@ -177,17 +177,18 @@ void PairBuckLongCoulLong::allocate()
 
 void *PairBuckLongCoulLong::extract(const char *id, int &dim)
 {
-  const char *ids[] = {
-    "B", "ewald_order", "ewald_cut", "ewald_mix", "cut_coul", "cut_LJ", nullptr};
-  void *ptrs[] = {
-    buck_c, &ewald_order, &cut_coul, &mix_flag, &cut_coul, &cut_buck_global,
-    nullptr};
-  int i;
+  // per-type-pair arrays are 2d, scalars are 0d
 
-  for (i=0; ids[i]&&strcmp(ids[i], id); ++i);
-  if (i == 0) dim = 2;
-  else dim = 0;
-  return ptrs[i];
+  dim = 2;
+  if (strcmp(id,"B") == 0) return (void *) buck_c;
+
+  dim = 0;
+  if (strcmp(id,"ewald_order") == 0) return (void *) &ewald_order;
+  if (strcmp(id,"ewald_cut") == 0) return (void *) &cut_coul;
+  if (strcmp(id,"ewald_mix") == 0) return (void *) &mix_flag;
+  if (strcmp(id,"cut_coul") == 0) return (void *) &cut_coul;
+  if (strcmp(id,"cut_LJ") == 0) return (void *) &cut_buck_global;
+  return nullptr;
 }
 
 /* ----------------------------------------------------------------------
