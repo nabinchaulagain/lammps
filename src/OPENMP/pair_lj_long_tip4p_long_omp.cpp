@@ -93,8 +93,8 @@ void PairLJLongTIP4PLongOMP::compute(int eflag, int vflag)
   // be updated. this needs to be done in every step.
   for (i = 0; i < nall; i++) hneigh_thr[i].t = 0;
 
-  const int order1 = ewald_order&(1<<1);
-  const int order6 = ewald_order&(1<<6);
+  const int order1 = ewald_order & EWALD_COUL;
+  const int order6 = ewald_order & EWALD_DISP;
 
   const int nthreads = comm->nthreads;
   const int inum = list->inum;
