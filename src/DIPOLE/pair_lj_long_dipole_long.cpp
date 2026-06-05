@@ -169,18 +169,20 @@ void PairLJLongDipoleLong::allocate()
 
 void *PairLJLongDipoleLong::extract(const char *id, int &dim)
 {
-  const char *ids[] = {
-    "B", "sigma", "epsilon", "ewald_order", "ewald_cut", "ewald_mix",
-    "cut_coul", "cut_vdwl", nullptr};
-  void *ptrs[] = {
-    lj4, sigma, epsilon, &ewald_order, &cut_coul, &mix_flag, &cut_coul,
-    &cut_lj_global, nullptr};
-  int i;
+  // per-type-pair arrays are 2d, scalars are 0d
 
-  for (i=0; ids[i]&&strcmp(ids[i], id); ++i);
-  if (i <= 2) dim = 2;
-  else dim = 0;
-  return ptrs[i];
+  dim = 2;
+  if (strcmp(id,"B") == 0) return (void *) lj4;
+  if (strcmp(id,"sigma") == 0) return (void *) sigma;
+  if (strcmp(id,"epsilon") == 0) return (void *) epsilon;
+
+  dim = 0;
+  if (strcmp(id,"ewald_order") == 0) return (void *) &ewald_order;
+  if (strcmp(id,"ewald_cut") == 0) return (void *) &cut_coul;
+  if (strcmp(id,"ewald_mix") == 0) return (void *) &mix_flag;
+  if (strcmp(id,"cut_coul") == 0) return (void *) &cut_coul;
+  if (strcmp(id,"cut_vdwl") == 0) return (void *) &cut_lj_global;
+  return nullptr;
 }
 
 /* ----------------------------------------------------------------------
