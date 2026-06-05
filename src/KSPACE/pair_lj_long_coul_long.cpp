@@ -967,7 +967,7 @@ double PairLJLongCoulLong::single(int i, int j, int itype, int jtype,
   double eng = 0.0;
 
   r2inv = 1.0/rsq;
-  if ((ewald_order&2) && (rsq < cut_coulsq)) {                // coulombic
+  if ((ewald_order & EWALD_COUL) && (rsq < cut_coulsq)) {     // coulombic
     if (!ncoultablebits || rsq <= tabinnersq) {                // series real space
       double r = sqrt(rsq), x = g_ewald*r;
       double s = force->qqrd2e*q[i]*q[j], t = 1.0/(1.0+EWALD_P*x);
@@ -987,7 +987,7 @@ double PairLJLongCoulLong::single(int i, int j, int itype, int jtype,
 
   if (rsq < cut_ljsq[itype][jtype]) {                       // lennard-jones
     r6inv = r2inv*r2inv*r2inv;
-    if (ewald_order&64) {                                   // long-range
+    if (ewald_order & EWALD_DISP) {                         // long-range
       double x2 = g2*rsq, a2 = 1.0/x2, t = r6inv*(1.0-factor_lj);
       x2 = a2*exp(-x2)*lj4[itype][jtype];
       force_lj = factor_lj*(r6inv *= r6inv)*lj1[itype][jtype]-
