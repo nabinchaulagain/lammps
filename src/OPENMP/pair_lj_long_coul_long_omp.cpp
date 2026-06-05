@@ -980,13 +980,10 @@ void PairLJLongCoulLongOMP::eval_outer(int iiform, int iito, ThrData * const thr
   const double * const special_lj = force->special_lj;
   const double qqrd2e = force->qqrd2e;
 
-  const double *x0 = x[0];
-  double *f0 = f[0], *fi = f0;
-
   int *ilist = list->ilist;
 
-  int i, j, ii;
-  int *jneigh, *jneighn, typei, typej, ni, respa_flag;
+  int i, j, ii, jj;
+  int typei, typej, ni, respa_flag;
   double qi = 0.0, qri = 0.0;
   double *cutsqi, *cut_ljsqi, *lj1i, *lj2i, *lj3i, *lj4i, *offseti;
   double rsq, r2inv, force_coul, force_lj;
@@ -1001,28 +998,29 @@ void PairLJLongCoulLongOMP::eval_outer(int iiform, int iito, ThrData * const thr
   const double cut_in_off_sq = cut_in_off*cut_in_off;
   const double cut_in_on_sq = cut_in_on*cut_in_on;
 
-  //ineighn = (ineigh = list->ilist)+list->inum;
-
   for (ii = iiform; ii < iito; ++ii) {                        // loop over my atoms
-    i = ilist[ii]; fi = f0+3*i;
+    i = ilist[ii];
     if (ORDER1) qri = (qi = q[i])*qqrd2e;                // initialize constants
-    offseti = offset[typei = type[i]];
+    typei = type[i];
+    offseti = offset[typei];
     lj1i = lj1[typei]; lj2i = lj2[typei]; lj3i = lj3[typei]; lj4i = lj4[typei];
     cutsqi = cutsq[typei]; cut_ljsqi = cut_ljsq[typei];
-    memcpy(xi, x0+(i+(i<<1)), 3*sizeof(double));
-    jneighn = (jneigh = list->firstneigh[i])+list->numneigh[i];
+    xi[0] = x[i][0]; xi[1] = x[i][1]; xi[2] = x[i][2];
+    int *jlist = list->firstneigh[i];
+    int jnum = list->numneigh[i];
 
-    for (; jneigh<jneighn; ++jneigh) {                        // loop over neighbors
-      j = *jneigh;
+    for (jj = 0; jj < jnum; jj++) {                           // loop over neighbors
+      j = jlist[jj];
       ni = sbmask(j);
       j &= NEIGHMASK;
 
-      { const double *xj = x0+(j+(j<<1));
-        d[0] = xi[0] - xj[0];                                // pair vector
-        d[1] = xi[1] - xj[1];
-        d[2] = xi[2] - xj[2]; }
+      d[0] = xi[0] - x[j][0];                                 // pair vector
+      d[1] = xi[1] - x[j][1];
+      d[2] = xi[2] - x[j][2];
 
-      if ((rsq = dot3(d, d)) >= cutsqi[typej = type[j]]) continue;
+      rsq = dot3(d, d);
+      typej = type[j];
+      if (rsq >= cutsqi[typej]) continue;
       r2inv = 1.0/rsq;
 
       frespa = 1.0;                                       // check whether and how to compute respa corrections
@@ -1122,15 +1120,14 @@ void PairLJLongCoulLongOMP::eval_outer(int iiform, int iito, ThrData * const thr
 
       fpair = (force_coul+force_lj)*r2inv;
 
+      double fdx = d[0]*fpair, fdy = d[1]*fpair, fdz = d[2]*fpair;
+      f[i][0] += fdx;
+      f[i][1] += fdy;
+      f[i][2] += fdz;
       if (NEWTON_PAIR || j < nlocal) {
-        double *fj = f0+(j+(j<<1)), f;
-        fi[0] += f = d[0]*fpair; fj[0] -= f;
-        fi[1] += f = d[1]*fpair; fj[1] -= f;
-        fi[2] += f = d[2]*fpair; fj[2] -= f;
-      } else {
-        fi[0] += d[0]*fpair;
-        fi[1] += d[1]*fpair;
-        fi[2] += d[2]*fpair;
+        f[j][0] -= fdx;
+        f[j][1] -= fdy;
+        f[j][2] -= fdz;
       }
 
       if (EVFLAG) {
