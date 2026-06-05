@@ -52,8 +52,8 @@ void PairBuckLongCoulLongOMP::compute(int eflag, int vflag)
 {
   ev_init(eflag,vflag);
 
-  const int order1 = ewald_order&(1<<1);
-  const int order6 = ewald_order&(1<<6);
+  const int order1 = ewald_order & EWALD_COUL;
+  const int order6 = ewald_order & EWALD_DISP;
 
   const int nall = atom->nlocal + atom->nghost;
   const int nthreads = comm->nthreads;
