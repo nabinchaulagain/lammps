@@ -230,7 +230,7 @@ void PairLJLongDipoleLong::init_style()
 
   // require an atom style with charge defined
 
-  if (!atom->q_flag && (ewald_order&(1<<1)))
+  if (!atom->q_flag && (ewald_order & EWALD_COUL))
     error->all(FLERR,
                "Invoking coulombic in pair style lj/long/dipole/long requires atom attribute q");
   if (!atom->mu_flag || !atom->torque_flag)
@@ -242,13 +242,13 @@ void PairLJLongDipoleLong::init_style()
 
   // ensure use of KSpace long-range solver, set g_ewald
 
-  if (ewald_order&(1<<3)) {                             // r^-1 kspace
+  if (ewald_order & EWALD_DIPOLE) {                     // r^-1 kspace
     if (force->kspace == nullptr)
       error->all(FLERR,"Pair style requires a KSpace style");
     if (!force->kspace->dipoleflag)
       error->all(FLERR,"Pair style requires use of kspace_style with dipole support");
   }
-  if (ewald_order&(1<<6)) {                             // r^-6 kspace
+  if (ewald_order & EWALD_DISP) {                       // r^-6 kspace
     if (force->kspace == nullptr)
       error->all(FLERR,"Pair style requires a KSpace style");
     if (!force->kspace->dispersionflag)
