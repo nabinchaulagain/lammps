@@ -1188,11 +1188,11 @@ void PairLJLongTIP4PLongOMP::eval_inner(int iifrom, int iito, ThrData * const th
 
       if (rsq < cut_ljsq[itype][jtype] && rsq < cut_out_off_sq) {  // lj
         r2inv = 1.0/rsq;
-        double rn = r2inv*r2inv*r2inv;
-        if (ni == 0) forcelj = rn*(rn*lj1i[jtype]-lj2i[jtype]);
+        double r6inv = r2inv*r2inv*r2inv;
+        if (ni == 0) forcelj = r6inv*(r6inv*lj1i[jtype]-lj2i[jtype]);
         else {                  // special case
-          double f = special_lj[ni];
-          forcelj = f*rn*(rn*lj1i[jtype]-lj2i[jtype]);
+          double factor = special_lj[ni];
+          forcelj = factor*r6inv*(r6inv*lj1i[jtype]-lj2i[jtype]);
         }
 
         if (rsq > cut_out_on_sq) {                        // switching
