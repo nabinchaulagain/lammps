@@ -229,7 +229,7 @@ void PairLJLongCoulLong::init_style()
 {
   // require an atom style with charge defined
 
-  if (!atom->q_flag && (ewald_order&(1<<1)))
+  if (!atom->q_flag && (ewald_order & EWALD_COUL))
     error->all(FLERR,
                "Invoking coulombic in pair style lj/long/coul/long requires atom attribute q");
 
@@ -237,8 +237,8 @@ void PairLJLongCoulLong::init_style()
 
   if (force->kspace == nullptr)
     error->all(FLERR,"Pair style requires a KSpace style");
-  if (ewald_order&(1<<1)) g_ewald = force->kspace->g_ewald;
-  if (ewald_order&(1<<6)) g_ewald_6 = force->kspace->g_ewald_6;
+  if (ewald_order & EWALD_COUL) g_ewald = force->kspace->g_ewald;
+  if (ewald_order & EWALD_DISP) g_ewald_6 = force->kspace->g_ewald_6;
 
   // set rRESPA cutoffs
 
@@ -249,8 +249,8 @@ void PairLJLongCoulLong::init_style()
 
   // setup force tables
 
-  if (ncoultablebits && (ewald_order&(1<<1))) init_tables(cut_coul,cut_respa);
-  if (ndisptablebits && (ewald_order&(1<<6))) init_tables_disp(cut_lj_global);
+  if (ncoultablebits && (ewald_order & EWALD_COUL)) init_tables(cut_coul,cut_respa);
+  if (ndisptablebits && (ewald_order & EWALD_DISP)) init_tables_disp(cut_lj_global);
 
   // request regular or rRESPA neighbor lists if neighrequest_flag != 0
 
