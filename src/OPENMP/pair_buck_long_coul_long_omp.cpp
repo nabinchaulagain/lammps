@@ -943,11 +943,11 @@ void PairBuckLongCoulLongOMP::eval_middle(int iifrom, int iito, ThrData * const 
 
       typej = type[j];
       if (rsq < cut_bucksqi[typej]) {                          // buckingham
-        double rn = r2inv*r2inv*r2inv,
+        double r6inv = r2inv*r2inv*r2inv,
                         expr = exp(-r*rhoinvi[typej]);
         force_buck = ni == 0 ?
-          (r*expr*buck1i[typej]-rn*buck2i[typej]) :
-          (r*expr*buck1i[typej]-rn*buck2i[typej])*special_lj[ni];
+          (r*expr*buck1i[typej]-r6inv*buck2i[typej]) :
+          (r*expr*buck1i[typej]-r6inv*buck2i[typej])*special_lj[ni];
       } else force_buck = 0.0;
 
       fpair = (force_coul + force_buck) * r2inv;
