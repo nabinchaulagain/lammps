@@ -986,31 +986,38 @@ double PairLJLongCoulLong::single(int i, int j, int itype, int jtype,
   r2inv = 1.0/rsq;
   if ((ewald_order & EWALD_COUL) && (rsq < cut_coulsq)) {     // coulombic
     if (!ncoultablebits || rsq <= tabinnersq) {                // series real space
-      double r = sqrt(rsq), x = g_ewald*r;
-      double s = force->qqrd2e*q[i]*q[j], t = 1.0/(1.0+EWALD_P*x);
-      r = s*(1.0-factor_coul)/r; s *= g_ewald*exp(-x*x);
-      force_coul = (t *= ((((t*A5+A4)*t+A3)*t+A2)*t+A1)*s/x)+EWALD_F*s-r;
-      eng += t-r;
+      double r = sqrt(rsq);
+      double grij = g_ewald*r;
+      double pre = force->qqrd2e*q[i]*q[j];
+      double t = 1.0/(1.0+EWALD_P*grij);
+      double erfc_poly = ((((t*A5+A4)*t+A3)*t+A2)*t+A1);
+      double adjust = pre*(1.0-factor_coul)/r;
+      pre *= g_ewald*exp(-grij*grij);
+      t *= erfc_poly*pre/grij;
+      force_coul = t+EWALD_F*pre-adjust;
+      eng += t-adjust;
     } else {                                                // table real space
-      union_int_float_t t;
-      t.f = rsq;
-      const int k = (t.i & ncoulmask) >> ncoulshiftbits;
-      double f = (rsq-rtable[k])*drtable[k], qiqj = q[i]*q[j];
-      t.f = (1.0-factor_coul)*(ctable[k]+f*dctable[k]);
-      force_coul = qiqj*(ftable[k]+f*dftable[k]-(double)t.f);
-      eng += qiqj*(etable[k]+f*detable[k]-(double)t.f);
+      union_int_float_t rsq_lookup;
+      rsq_lookup.f = rsq;
+      const int k = (rsq_lookup.i & ncoulmask) >> ncoulshiftbits;
+      double fraction = (rsq-rtable[k])*drtable[k], qiqj = q[i]*q[j];
+      rsq_lookup.f = (1.0-factor_coul)*(ctable[k]+fraction*dctable[k]);
+      force_coul = qiqj*(ftable[k]+fraction*dftable[k]-(double)rsq_lookup.f);
+      eng += qiqj*(etable[k]+fraction*detable[k]-(double)rsq_lookup.f);
     }
   } else force_coul = 0.0;
 
   if (rsq < cut_ljsq[itype][jtype]) {                       // lennard-jones
     r6inv = r2inv*r2inv*r2inv;
     if (ewald_order & EWALD_DISP) {                         // long-range
-      double x2 = g2*rsq, a2 = 1.0/x2, t = r6inv*(1.0-factor_lj);
-      x2 = a2*exp(-x2)*lj4[itype][jtype];
-      force_lj = factor_lj*(r6inv *= r6inv)*lj1[itype][jtype]-
-               g8*(((6.0*a2+6.0)*a2+3.0)*a2+1.0)*x2*rsq+t*lj2[itype][jtype];
-      eng += factor_lj*r6inv*lj3[itype][jtype]-
-        g6*((a2+1.0)*a2+0.5)*x2+t*lj4[itype][jtype];
+      double r12inv = r6inv*r6inv;
+      double gr2 = g2*rsq, a2 = 1.0/gr2;
+      double expterm = a2*exp(-gr2)*lj4[itype][jtype];
+      double t = r6inv*(1.0-factor_lj);
+      double g6term = g6*((a2+1.0)*a2+0.5)*expterm;
+      double g8term = g8*(((6.0*a2+6.0)*a2+3.0)*a2+1.0)*expterm*rsq;
+      force_lj = factor_lj*r12inv*lj1[itype][jtype]-g8term+t*lj2[itype][jtype];
+      eng += factor_lj*r12inv*lj3[itype][jtype]-g6term+t*lj4[itype][jtype];
     } else {                                                // cut
       force_lj = factor_lj*r6inv*(lj1[itype][jtype]*r6inv-lj2[itype][jtype]);
       eng += factor_lj*(r6inv*(r6inv*lj3[itype][jtype]-
