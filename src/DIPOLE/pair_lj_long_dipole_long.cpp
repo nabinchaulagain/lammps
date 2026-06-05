@@ -39,6 +39,12 @@ using namespace MathConst;
 using namespace MathExtra;
 using namespace EwaldConst;
 
+// bits in ewald_order / ewald_off flag which interaction order is treated
+// with the long-range (k-space) solver: order 1 = Coulomb (1/r),
+// order 3 = dipole, order 6 = LJ dispersion (1/r^6).
+
+enum { EWALD_COUL = 1 << 1, EWALD_DIPOLE = 1 << 3, EWALD_DISP = 1 << 6 };
+
 // ----------------------------------------------------------------------
 
 PairLJLongDipoleLong::PairLJLongDipoleLong(LAMMPS *lmp) : Pair(lmp)
@@ -52,19 +58,18 @@ PairLJLongDipoleLong::PairLJLongDipoleLong(LAMMPS *lmp) : Pair(lmp)
 // global settings
 // ----------------------------------------------------------------------
 
-void PairLJLongDipoleLong::options(char **arg, int order)
+void PairLJLongDipoleLong::options(char **arg, int mask)
 {
-  const char *option[] = {"long", "cut", "off", nullptr};
-  int i;
-
   if (!*arg) error->all(FLERR,"Illegal pair_style lj/long/dipole/long command");
-  for (i=0; option[i]&&strcmp(arg[0], option[i]); ++i);
-  switch (i) {
-    case 0: ewald_order |= 1<<order; break;             // set kspace r^-order
-    case 2: ewald_off |= 1<<order; break;               // turn r^-order off
-    case 1: break;
-    default: error->all(FLERR,"Illegal pair_style lj/long/dipole/long command");
-  }
+
+  // "long" : treat this interaction with the long-range (k-space) solver
+  // "cut"  : plain real-space cutoff (default, leaves both flags clear)
+  // "off"  : interaction disabled
+
+  if (strcmp(*arg,"long") == 0) ewald_order |= mask;
+  else if (strcmp(*arg,"off") == 0) ewald_off |= mask;
+  else if (strcmp(*arg,"cut") != 0)
+    error->all(FLERR,"Illegal pair_style lj/long/dipole/long command");
 }
 
 void PairLJLongDipoleLong::settings(int narg, char **arg)
@@ -74,22 +79,22 @@ void PairLJLongDipoleLong::settings(int narg, char **arg)
   ewald_order = 0;
   ewald_off = 0;
 
-  options(arg, 6);
-  options(++arg, 3);
-  options(arg, 1);
+  options(arg, EWALD_DISP);
+  options(++arg, EWALD_DIPOLE);
+  options(arg, EWALD_COUL);
 
-  if (!comm->me && ewald_order&(1<<6))
+  if (!comm->me && ewald_order & EWALD_DISP)
     error->warning(FLERR,"Geometric mixing assumed for 1/r^6 coefficients" + utils::errorurl(21));
-  if (!comm->me && ewald_order==((1<<3)|(1<<6)))
+  if (!comm->me && ewald_order == (EWALD_DIPOLE | EWALD_DISP))
     error->warning(FLERR,"Using largest cut-off for lj/long/dipole/long long long");
   if (!*(++arg))
     error->all(FLERR,"Cutoffs missing in pair_style lj/long/dipole/long");
-  if (!((ewald_order^ewald_off) & (1<<6)))
+  if (!((ewald_order^ewald_off) & EWALD_DISP))
     dispersionflag = 0;
-  if (!((ewald_order^ewald_off)&(1<<3)))
+  if (!((ewald_order^ewald_off) & EWALD_DIPOLE))
     error->all(FLERR,"Coulombic cut not supported in pair_style lj/long/dipole/long");
   cut_lj_global = utils::numeric(FLERR,*(arg++),false,lmp);
-  if (narg == 4 && (ewald_order==0x4a))
+  if (narg == 4 && (ewald_order == (EWALD_COUL | EWALD_DIPOLE | EWALD_DISP)))
     error->all(FLERR,"Only one cut-off allowed when requesting all long");
   if (narg == 4) cut_coul = utils::numeric(FLERR,*(arg++),false,lmp);
   else cut_coul = cut_lj_global;
@@ -164,18 +169,20 @@ void PairLJLongDipoleLong::allocate()
 
 void *PairLJLongDipoleLong::extract(const char *id, int &dim)
 {
-  const char *ids[] = {
-    "B", "sigma", "epsilon", "ewald_order", "ewald_cut", "ewald_mix",
-    "cut_coul", "cut_vdwl", nullptr};
-  void *ptrs[] = {
-    lj4, sigma, epsilon, &ewald_order, &cut_coul, &mix_flag, &cut_coul,
-    &cut_lj_global, nullptr};
-  int i;
+  // per-type-pair arrays are 2d, scalars are 0d
 
-  for (i=0; ids[i]&&strcmp(ids[i], id); ++i);
-  if (i <= 2) dim = 2;
-  else dim = 0;
-  return ptrs[i];
+  dim = 2;
+  if (strcmp(id,"B") == 0) return (void *) lj4;
+  if (strcmp(id,"sigma") == 0) return (void *) sigma;
+  if (strcmp(id,"epsilon") == 0) return (void *) epsilon;
+
+  dim = 0;
+  if (strcmp(id,"ewald_order") == 0) return (void *) &ewald_order;
+  if (strcmp(id,"ewald_cut") == 0) return (void *) &cut_coul;
+  if (strcmp(id,"ewald_mix") == 0) return (void *) &mix_flag;
+  if (strcmp(id,"cut_coul") == 0) return (void *) &cut_coul;
+  if (strcmp(id,"cut_vdwl") == 0) return (void *) &cut_lj_global;
+  return nullptr;
 }
 
 /* ----------------------------------------------------------------------
@@ -223,7 +230,7 @@ void PairLJLongDipoleLong::init_style()
 
   // require an atom style with charge defined
 
-  if (!atom->q_flag && (ewald_order&(1<<1)))
+  if (!atom->q_flag && (ewald_order & EWALD_COUL))
     error->all(FLERR,
                "Invoking coulombic in pair style lj/long/dipole/long requires atom attribute q");
   if (!atom->mu_flag || !atom->torque_flag)
@@ -235,13 +242,13 @@ void PairLJLongDipoleLong::init_style()
 
   // ensure use of KSpace long-range solver, set g_ewald
 
-  if (ewald_order&(1<<3)) {                             // r^-1 kspace
+  if (ewald_order & EWALD_DIPOLE) {                     // r^-1 kspace
     if (force->kspace == nullptr)
       error->all(FLERR,"Pair style requires a KSpace style");
     if (!force->kspace->dipoleflag)
       error->all(FLERR,"Pair style requires use of kspace_style with dipole support");
   }
-  if (ewald_order&(1<<6)) {                             // r^-6 kspace
+  if (ewald_order & EWALD_DISP) {                       // r^-6 kspace
     if (force->kspace == nullptr)
       error->all(FLERR,"Pair style requires a KSpace style");
     if (!force->kspace->dispersionflag)
@@ -256,11 +263,11 @@ void PairLJLongDipoleLong::init_style()
 
 double PairLJLongDipoleLong::init_one(int i, int j)
 {
-  if ((ewald_order&(1<<6))||(setflag[i][j] == 0)) {
+  if ((ewald_order & EWALD_DISP)||(setflag[i][j] == 0)) {
     epsilon[i][j] = mix_energy(epsilon_read[i][i],epsilon_read[j][j],
                                sigma_read[i][i],sigma_read[j][j]);
     sigma[i][j] = mix_distance(sigma_read[i][i],sigma_read[j][j]);
-    if (ewald_order&(1<<6))
+    if (ewald_order & EWALD_DISP)
       cut_lj[i][j] = cut_lj_global;
     else
       cut_lj[i][j] = mix_distance(cut_lj_read[i][i],cut_lj_read[j][j]);
