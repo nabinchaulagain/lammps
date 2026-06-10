@@ -766,13 +766,8 @@ void ComputeFrenkel::compute_local()
   std::vector<bool> owned(noccupied);
   int nowned = 0;
   for (int i = 0; i < noccupied; i++) {
-    if (cluster_center[i][0] >= domain->sublo[0] && cluster_center[i][0] < domain->subhi[0] &&
-        cluster_center[i][1] >= domain->sublo[1] && cluster_center[i][1] < domain->subhi[1] &&
-        cluster_center[i][2] >= domain->sublo[2] && cluster_center[i][2] < domain->subhi[2]) {
-      owned[i] = true;
-      nowned++;
-    } else
-      owned[i] = false;
+    owned[i] = center_in_subdomain(cluster_center[i]);
+    if (owned[i]) nowned++;
   }
 
   size_local_rows = nowned;
