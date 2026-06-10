@@ -31,14 +31,13 @@
 #include "group.h"
 #include "lattice.h"
 #include "memory.h"
+#include "text_file_reader.h"
 #include "update.h"
+
 #include <array>
 #include <cmath>
-#include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <mpi.h>
-#include <vector>
 
 static constexpr int BIN_GROW_SIZE = 32;    // bins start this size and grow by this
 static constexpr int MAX_OCCUPANTS = 8;     // max number of occupants of one lattice site
@@ -52,7 +51,7 @@ static const char cite_compute_frenkel_c[] =
     "@article{Hammond2020a,\n"
     "  author  = \"Hammond, Karl D.\",\n"
     "  title   = \"Parallel Point Defect Identification in Molecular Dynamics\n"
-    "             Simulations Without Post-Processing: A Compute && Dump Style\n"
+    "             Simulations Without Post-Processing: A Compute and Dump Style\n"
     "             for {LAMMPS}\",\n"
     "  journal = \"Computer Physics Communications\",\n"
     "  volume  = 247,\n"
@@ -63,13 +62,13 @@ static const char cite_compute_frenkel_c[] =
 
 ComputeFrenkel::ComputeFrenkel(class LAMMPS *lmp, int narg, char **arg) :
     Compute(lmp, narg, arg), image_objvec(nullptr), image_objarray(nullptr), image_nmax(0),
-    region(nullptr), sitefile(nullptr), ifgroup(igroup), fgroupbit(groupbit), rescale(false),
-    mindist(nullptr), site_mindist(nullptr), noccupants(nullptr), occupant_tag(nullptr), nnormal(0),
-    normal(nullptr), nlatsites(0), nlatghosts(0), latsites(nullptr), latsites0(nullptr),
-    site_tag(nullptr), first_local_tag(0), nlatbins{0, 0, 0, 0}, latbins(nullptr),
-    clusterID(nullptr), cluster_size(nullptr), cluster_nsites(nullptr), cluster_center(nullptr),
-    noccupied(0), occupied_cluster_ID(nullptr), old_boxlo{0.0, 0.0, 0.0}, old_boxhi{0.0, 0.0, 0.0},
-    invoked_find_defects(-1), invoked_find_clusters(-1), invoked_construct_WS_cell(-1)
+    region(nullptr), ifgroup(igroup), fgroupbit(groupbit), rescale(false), mindist(nullptr),
+    site_mindist(nullptr), noccupants(nullptr), occupant_tag(nullptr), nnormal(0), normal(nullptr),
+    nlatsites(0), nlatghosts(0), latsites(nullptr), latsites0(nullptr), site_tag(nullptr),
+    first_local_tag(0), nlatbins{0, 0, 0, 0}, latbins(nullptr), clusterID(nullptr),
+    cluster_center(nullptr), noccupied(0), occupied_cluster_ID(nullptr), old_boxlo{0.0, 0.0, 0.0},
+    old_boxhi{0.0, 0.0, 0.0}, invoked_find_defects(-1), invoked_find_clusters(-1),
+    invoked_construct_WS_cell(-1)
 {
   if (narg != 3) error->all(FLERR, "Illegal compute frenkel command");
 
@@ -110,8 +109,6 @@ ComputeFrenkel::ComputeFrenkel(class LAMMPS *lmp, int narg, char **arg) :
 
 ComputeFrenkel::~ComputeFrenkel()
 {
-  delete[] sitefile;
-
   memory->destroy(vector);
   memory->destroy(array);
   memory->destroy(array_local);
@@ -126,8 +123,6 @@ ComputeFrenkel::~ComputeFrenkel()
   memory->destroy(mindist);
   memory->destroy(site_mindist);
   memory->destroy(clusterID);
-  delete[] cluster_size;
-  delete[] cluster_nsites;
   memory->destroy(cluster_center);
   memory->destroy(occupied_cluster_ID);
   memory->destroy(image_objvec);
@@ -173,15 +168,11 @@ int ComputeFrenkel::modify_param(int narg, char **arg)
     return 2;
   } else if (strcmp(arg[0], "site_file") == 0) {
     if (narg < 2) utils::missing_cmd_args(FLERR, "compute_modify site_file", error);
-    delete[] sitefile;
-    sitefile = nullptr;
+    sitefile.clear();
     if (strcmp(arg[1], "none") != 0) {
-      sitefile = utils::strdup(arg[1]);
-      FILE *tmp = fopen(sitefile, "r");
-      if (tmp == nullptr)
-        error->one(FLERR, "File {} cannot be opened for reading", arg[1]);
-      else
-        fclose(tmp);
+      sitefile = arg[1];
+      if (!platform::file_is_readable(sitefile))
+        error->one(FLERR, "Compute frenkel site file {} is not readable", sitefile);
     }
     return 2;
   }
@@ -445,8 +436,8 @@ void ComputeFrenkel::find_clusters()
 
   // Find the number of sites involved in each cluster (its size), and the
   // center of each cluster (NOT the center of mass, the center)
-  int *local_cluster_size = new int[noccupied]();
-  int *local_cluster_nsites = new int[noccupied]();
+  std::vector<int> local_cluster_size(noccupied, 0);
+  std::vector<int> local_cluster_nsites(noccupied, 0);
   double **local_cluster_xi;
   double **local_cluster_zeta;
   memory->create(local_cluster_xi, noccupied, 3, "ComputeFrenkel::local_cluster_xi");
@@ -507,14 +498,11 @@ void ComputeFrenkel::find_clusters()
   }
 
   // Find the global cluster size for each cluster across all processes
-  delete[] cluster_size;
-  delete[] cluster_nsites;
-  cluster_size = new int[noccupied]();
-  cluster_nsites = new int[noccupied]();
-  MPI_Allreduce(local_cluster_size, cluster_size, noccupied, MPI_INT, MPI_SUM, world);
-  MPI_Allreduce(local_cluster_nsites, cluster_nsites, noccupied, MPI_INT, MPI_SUM, world);
-  delete[] local_cluster_nsites;
-  delete[] local_cluster_size;
+  cluster_size.assign(noccupied, 0);
+  cluster_nsites.assign(noccupied, 0);
+  MPI_Allreduce(local_cluster_size.data(), cluster_size.data(), noccupied, MPI_INT, MPI_SUM, world);
+  MPI_Allreduce(local_cluster_nsites.data(), cluster_nsites.data(), noccupied, MPI_INT, MPI_SUM,
+                world);
 
   // Now average the center in the complex plane <z>_a = (<xi>,<zeta>) across
   // all processes for all clusters
@@ -623,17 +611,15 @@ void ComputeFrenkel::find_occupied_clusters()
   MPI_Allreduce(&local_noccupied, &noccupied, 1, MPI_INT, MPI_SUM, world);
   memory->destroy(occupied_cluster_ID);
   memory->create(occupied_cluster_ID, noccupied, "ComputeFrenkel:occupied_cluster_ID");
-  int *nreceive = new int[comm->nprocs]();
-  MPI_Allgather(&local_noccupied, 1, MPI_INT, nreceive, 1, MPI_INT, world);
+  std::vector<int> nreceive(comm->nprocs, 0);
+  MPI_Allgather(&local_noccupied, 1, MPI_INT, nreceive.data(), 1, MPI_INT, world);
   int displ;
   MPI_Scan(&local_noccupied, &displ, 1, MPI_INT, MPI_SUM, world);
   displ -= local_noccupied;
-  int *displacement = new int[comm->nprocs]();
-  MPI_Allgather(&displ, 1, MPI_INT, displacement, 1, MPI_INT, world);
+  std::vector<int> displacement(comm->nprocs, 0);
+  MPI_Allgather(&displ, 1, MPI_INT, displacement.data(), 1, MPI_INT, world);
   MPI_Allgatherv(local_occupied_cluster_ID, local_noccupied, MPI_LMP_TAGINT, occupied_cluster_ID,
-                 nreceive, displacement, MPI_LMP_TAGINT, world);
-  delete[] nreceive;
-  delete[] displacement;
+                 nreceive.data(), displacement.data(), MPI_LMP_TAGINT, world);
   memory->destroy(local_occupied_cluster_ID);
 
   // sort the big array and once again remove duplicates
@@ -769,7 +755,7 @@ void ComputeFrenkel::compute_local()
 
   // Find out whether the cluster belongs to this subdomain
   // (this prevents duplicate output)
-  bool *owned = new bool[noccupied]();
+  std::vector<bool> owned(noccupied);
   int nowned = 0;
   for (int i = 0; i < noccupied; i++) {
     if (cluster_center[i][0] >= domain->sublo[0] && cluster_center[i][0] < domain->subhi[0] &&
@@ -783,10 +769,7 @@ void ComputeFrenkel::compute_local()
 
   size_local_rows = nowned;
 
-  if (nowned == 0) {
-    delete[] owned;
-    return;
-  }
+  if (nowned == 0) { return; }
 
   memory->destroy(array_local);
   memory->create(array_local, size_local_rows, size_local_cols, "ComputeFrenkel:array_local");
@@ -807,7 +790,6 @@ void ComputeFrenkel::compute_local()
     array_local[i][4] = cluster_center[j][2];
     i++;
   }
-  delete[] owned;
 }
 
 /****************************************************************************/
@@ -916,19 +898,23 @@ void ComputeFrenkel::create_lattice_sites()
 
   std::vector<std::array<double, 3>> sites;
 
-  if (sitefile) {
+  if (!sitefile.empty()) {
     // read explicit site coordinates, one "x y z" per line
-    FILE *fp = fopen(sitefile, "r");
-    if (!fp)
-      error->one(FLERR, Error::NOLASTLINE, "Cannot open compute frenkel site file {}", sitefile);
-    char line[256];
-    while (fgets(line, sizeof(line), fp)) {
-      double x[3];
-      if (sscanf(line, "%lg %lg %lg", &x[0], &x[1], &x[2]) != 3) continue;
-      if (region && !region->match(x[0], x[1], x[2])) continue;
-      if (in_subdomain(x)) sites.push_back({x[0], x[1], x[2]});
+    try {
+      TextFileReader reader(sitefile, "compute frenkel site");
+      char *line;
+      while ((line = reader.next_line(3))) {
+        ValueTokenizer values(line);
+        double x[3];
+        x[0] = values.next_double();
+        x[1] = values.next_double();
+        x[2] = values.next_double();
+        if (region && !region->match(x[0], x[1], x[2])) continue;
+        if (in_subdomain(x)) sites.push_back({x[0], x[1], x[2]});
+      }
+    } catch (std::exception &e) {
+      error->one(FLERR, Error::NOLASTLINE, e.what());
     }
-    fclose(fp);
   } else {
     // lattice-index bounds covering my subdomain (use the unshrunk subbox)
     double bboxlo[3], bboxhi[3];
@@ -1363,8 +1349,8 @@ void ComputeFrenkel::put_sites_in_bins()
     if (binindex[i][j][k] >= nlatbins[3]) {
       int startval = nlatbins[3];
       nlatbins[3] += BIN_GROW_SIZE;
-      this->grow(latbins, nlatbins[0], nlatbins[1], nlatbins[2], nlatbins[3],
-                 "ComputeFrenkel:realloc-latbins");
+      memory->grow(latbins, nlatbins[0], nlatbins[1], nlatbins[2], nlatbins[3],
+                   "ComputeFrenkel:realloc-latbins");
       for (int ii = 0; ii < nlatbins[0]; ii++)
         for (int jj = 0; jj < nlatbins[1]; jj++)
           for (int kk = 0; kk < nlatbins[2]; kk++)
