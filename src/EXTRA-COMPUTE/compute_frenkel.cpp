@@ -810,12 +810,8 @@ int ComputeFrenkel::compute_image(int *&objs, double **&parms)
     // only draw clusters whose center is owned by this subdomain, so each
     // defect is rendered exactly once when running in parallel
     int nowned = 0;
-    for (int j = 0; j < noccupied; j++) {
-      double *c = cluster_center[j];
-      if (c[0] >= domain->sublo[0] && c[0] < domain->subhi[0] && c[1] >= domain->sublo[1] &&
-          c[1] < domain->subhi[1] && c[2] >= domain->sublo[2] && c[2] < domain->subhi[2])
-        nowned++;
-    }
+    for (int j = 0; j < noccupied; j++)
+      if (center_in_subdomain(cluster_center[j])) nowned++;
 
     memory->destroy(image_objvec);
     memory->destroy(image_objarray);
@@ -831,9 +827,7 @@ int ComputeFrenkel::compute_image(int *&objs, double **&parms)
     int n = 0;
     for (int j = 0; j < noccupied; j++) {
       double *c = cluster_center[j];
-      if (!(c[0] >= domain->sublo[0] && c[0] < domain->subhi[0] && c[1] >= domain->sublo[1] &&
-            c[1] < domain->subhi[1] && c[2] >= domain->sublo[2] && c[2] < domain->subhi[2]))
-        continue;
+      if (!center_in_subdomain(c)) continue;
       image_objvec[n] = Graphics::SPHERE;
       image_objarray[n][0] = (cluster_size[j] < 0) ? 1.0 : 2.0;
       image_objarray[n][1] = c[0];
