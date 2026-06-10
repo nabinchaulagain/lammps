@@ -755,7 +755,7 @@ void ComputeFrenkel::compute_local()
 
   // Find out whether the cluster belongs to this subdomain
   // (this prevents duplicate output)
-  bool *owned = new bool[noccupied]();
+  std::vector<bool> owned(noccupied);
   int nowned = 0;
   for (int i = 0; i < noccupied; i++) {
     if (cluster_center[i][0] >= domain->sublo[0] && cluster_center[i][0] < domain->subhi[0] &&
@@ -769,10 +769,7 @@ void ComputeFrenkel::compute_local()
 
   size_local_rows = nowned;
 
-  if (nowned == 0) {
-    delete[] owned;
-    return;
-  }
+  if (nowned == 0) { return; }
 
   memory->destroy(array_local);
   memory->create(array_local, size_local_rows, size_local_cols, "ComputeFrenkel:array_local");
@@ -793,7 +790,6 @@ void ComputeFrenkel::compute_local()
     array_local[i][4] = cluster_center[j][2];
     i++;
   }
-  delete[] owned;
 }
 
 /****************************************************************************/
