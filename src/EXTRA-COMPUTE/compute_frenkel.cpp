@@ -611,17 +611,15 @@ void ComputeFrenkel::find_occupied_clusters()
   MPI_Allreduce(&local_noccupied, &noccupied, 1, MPI_INT, MPI_SUM, world);
   memory->destroy(occupied_cluster_ID);
   memory->create(occupied_cluster_ID, noccupied, "ComputeFrenkel:occupied_cluster_ID");
-  int *nreceive = new int[comm->nprocs]();
-  MPI_Allgather(&local_noccupied, 1, MPI_INT, nreceive, 1, MPI_INT, world);
+  std::vector<int> nreceive(comm->nprocs, 0);
+  MPI_Allgather(&local_noccupied, 1, MPI_INT, nreceive.data(), 1, MPI_INT, world);
   int displ;
   MPI_Scan(&local_noccupied, &displ, 1, MPI_INT, MPI_SUM, world);
   displ -= local_noccupied;
-  int *displacement = new int[comm->nprocs]();
-  MPI_Allgather(&displ, 1, MPI_INT, displacement, 1, MPI_INT, world);
+  std::vector<int> displacement(comm->nprocs, 0);
+  MPI_Allgather(&displ, 1, MPI_INT, displacement.data(), 1, MPI_INT, world);
   MPI_Allgatherv(local_occupied_cluster_ID, local_noccupied, MPI_LMP_TAGINT, occupied_cluster_ID,
-                 nreceive, displacement, MPI_LMP_TAGINT, world);
-  delete[] nreceive;
-  delete[] displacement;
+                 nreceive.data(), displacement.data(), MPI_LMP_TAGINT, world);
   memory->destroy(local_occupied_cluster_ID);
 
   // sort the big array and once again remove duplicates
