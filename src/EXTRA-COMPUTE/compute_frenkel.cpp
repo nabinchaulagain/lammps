@@ -1021,21 +1021,17 @@ void ComputeFrenkel::exchange_lattice_ghosts()
   double ***x_recv;
   int **occup_send;
   int **occup_recv;
-  int *n_send;
-  int *n_recv;
   const int NINCR = 100;
   int max_size = NINCR;
-  int *idx;
 
   nlatghosts = 0;
-  n_send = new int[nprocs];
-  n_recv = new int[nprocs];
-  idx = new int[nprocs];
+  std::vector<int> n_send(nprocs, 0);
+  std::vector<int> n_recv(nprocs, 0);
+  std::vector<int> idx(nprocs, 0);
   memory->create(tag_send, nprocs, max_size, "ComputeFrenkel:tag_send");
   memory->create(x_send, nprocs, max_size, 3, "ComputeFrenkel:x_send");
   memory->create(occup_send, nprocs, max_size, "ComputeFrenkel:occup_send");
   memory->create(clusterID_send, nprocs, max_size, "ComputeFrenkel:clusterID_send");
-  for (int p = 0; p < nprocs; p++) idx[p] = n_send[p] = n_recv[p] = 0;
   for (int i = 0; i < nprocs * max_size; i++) tag_send[0][i] = -1;
   for (int i = 0; i < nprocs * max_size * 3; i++) x_send[0][0][i] = 0.0;
   for (int i = 0; i < nprocs * max_size; i++) occup_send[0][i] = 0;
@@ -1044,7 +1040,7 @@ void ComputeFrenkel::exchange_lattice_ghosts()
   // Find out which sites are near the boundaries
   // and which processes those boundaries correspond to.
   double dr[2][3];
-  bool *already_sent = new bool[nprocs];
+  std::vector<bool> already_sent(nprocs);
   for (int k = 0; k < nlatsites; k++) {
     dr[0][0] = latsites[k][0] - domain->sublo[0];
     dr[0][1] = latsites[k][1] - domain->sublo[1];
@@ -1100,11 +1096,9 @@ void ComputeFrenkel::exchange_lattice_ghosts()
       }
     }
   }
-  delete[] already_sent;
-
   // Send your sites to them and get theirs in return
-  MPI_Request *send_request = new MPI_Request[nprocs]();
-  MPI_Request *recv_request = new MPI_Request[nprocs]();
+  std::vector<MPI_Request> send_request(nprocs);
+  std::vector<MPI_Request> recv_request(nprocs);
   send_request[me] = MPI_REQUEST_NULL;
   recv_request[me] = MPI_REQUEST_NULL;
   for (int p = 0; p < nprocs; p++) {
@@ -1115,13 +1109,11 @@ void ComputeFrenkel::exchange_lattice_ghosts()
       MPI_Irecv(&n_recv[p], 1, MPI_INT, p, p, world, &recv_request[p]);
     }
   }
-  MPI_Status *send_status = new MPI_Status[nprocs]();
-  MPI_Status *recv_status = new MPI_Status[nprocs]();
-  //  for ( int i = 0; i < nprocs; i++ )
-  //    send_status[i] = recv_status[i] = MPI_Status();
+  std::vector<MPI_Status> send_status(nprocs);
+  std::vector<MPI_Status> recv_status(nprocs);
   if (nprocs > 1) {
-    MPI_Waitall(nprocs, send_request, send_status);
-    MPI_Waitall(nprocs, recv_request, recv_status);
+    MPI_Waitall(nprocs, send_request.data(), send_status.data());
+    MPI_Waitall(nprocs, recv_request.data(), recv_status.data());
   }
 
   max_size = 0;
@@ -1131,13 +1123,6 @@ void ComputeFrenkel::exchange_lattice_ghosts()
     memory->destroy(x_send);
     memory->destroy(occup_send);
     memory->destroy(clusterID_send);
-    delete[] n_send;
-    delete[] n_recv;
-    delete[] idx;
-    delete[] send_request;
-    delete[] recv_request;
-    delete[] send_status;
-    delete[] recv_status;
     return;    // Should only happen if regions don't cross domain boundaries
   }
   memory->create(tag_recv, nprocs, max_size, "ComputeFrenkel:tag_recv");
@@ -1148,18 +1133,18 @@ void ComputeFrenkel::exchange_lattice_ghosts()
   for (int i = 0; i < nprocs * max_size; i++) occup_recv[0][i] = 0;
   for (int i = 0; i < nprocs * max_size * 3; i++) x_recv[0][0][i] = 0.0;
   for (int i = 0; i < nprocs * max_size; i++) clusterID_recv[0][i] = 0;
-  MPI_Request *send_request_x = new MPI_Request[nprocs]();
-  MPI_Request *recv_request_x = new MPI_Request[nprocs]();
-  MPI_Request *send_request_o = new MPI_Request[nprocs]();
-  MPI_Request *recv_request_o = new MPI_Request[nprocs]();
-  MPI_Request *send_request_c = new MPI_Request[nprocs]();
-  MPI_Request *recv_request_c = new MPI_Request[nprocs]();
-  MPI_Status *send_status_x = new MPI_Status[nprocs]();
-  MPI_Status *recv_status_x = new MPI_Status[nprocs]();
-  MPI_Status *send_status_o = new MPI_Status[nprocs]();
-  MPI_Status *recv_status_o = new MPI_Status[nprocs]();
-  MPI_Status *send_status_c = new MPI_Status[nprocs]();
-  MPI_Status *recv_status_c = new MPI_Status[nprocs]();
+  std::vector<MPI_Request> send_request_x(nprocs);
+  std::vector<MPI_Request> recv_request_x(nprocs);
+  std::vector<MPI_Request> send_request_o(nprocs);
+  std::vector<MPI_Request> recv_request_o(nprocs);
+  std::vector<MPI_Request> send_request_c(nprocs);
+  std::vector<MPI_Request> recv_request_c(nprocs);
+  std::vector<MPI_Status> send_status_x(nprocs);
+  std::vector<MPI_Status> recv_status_x(nprocs);
+  std::vector<MPI_Status> send_status_o(nprocs);
+  std::vector<MPI_Status> recv_status_o(nprocs);
+  std::vector<MPI_Status> send_status_c(nprocs);
+  std::vector<MPI_Status> recv_status_c(nprocs);
   send_request[me] = MPI_REQUEST_NULL;
   recv_request[me] = MPI_REQUEST_NULL;
   send_request_x[me] = MPI_REQUEST_NULL;
@@ -1209,14 +1194,14 @@ void ComputeFrenkel::exchange_lattice_ghosts()
     }
   }
   if (nprocs > 1) {
-    MPI_Waitall(nprocs, send_request, send_status);
-    MPI_Waitall(nprocs, recv_request, recv_status);
-    MPI_Waitall(nprocs, send_request_x, send_status_x);
-    MPI_Waitall(nprocs, recv_request_x, recv_status_x);
-    MPI_Waitall(nprocs, send_request_o, send_status_o);
-    MPI_Waitall(nprocs, recv_request_o, recv_status_o);
-    MPI_Waitall(nprocs, send_request_c, send_status_c);
-    MPI_Waitall(nprocs, recv_request_c, recv_status_c);
+    MPI_Waitall(nprocs, send_request.data(), send_status.data());
+    MPI_Waitall(nprocs, recv_request.data(), recv_status.data());
+    MPI_Waitall(nprocs, send_request_x.data(), send_status_x.data());
+    MPI_Waitall(nprocs, recv_request_x.data(), recv_status_x.data());
+    MPI_Waitall(nprocs, send_request_o.data(), send_status_o.data());
+    MPI_Waitall(nprocs, recv_request_o.data(), recv_status_o.data());
+    MPI_Waitall(nprocs, send_request_c.data(), send_status_c.data());
+    MPI_Waitall(nprocs, recv_request_c.data(), recv_status_c.data());
   }
 
   // Reallocate the necessary memory
@@ -1250,25 +1235,6 @@ void ComputeFrenkel::exchange_lattice_ghosts()
   memory->destroy(x_recv);
   memory->destroy(occup_recv);
   memory->destroy(clusterID_recv);
-  delete[] n_send;
-  delete[] n_recv;
-  delete[] idx;
-  delete[] send_request;
-  delete[] recv_request;
-  delete[] send_request_x;
-  delete[] recv_request_x;
-  delete[] send_request_o;
-  delete[] recv_request_o;
-  delete[] send_request_c;
-  delete[] recv_request_c;
-  delete[] send_status;
-  delete[] recv_status;
-  delete[] send_status_x;
-  delete[] recv_status_x;
-  delete[] send_status_o;
-  delete[] recv_status_o;
-  delete[] send_status_c;
-  delete[] recv_status_c;
 }
 
 /****************************************************************************/
