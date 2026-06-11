@@ -749,13 +749,17 @@ void EwaldDisp::compute(int eflag, int vflag)
 
   reallocate_atoms();
   init_self_peratom();
+
+  // tinfoil (conducting metal) boundary conditions are assumed, so there
+  // is no surface dipole correction term
+
   eik_dot_r();
   compute_force();
 
   // update qsum and qsqsum, if atom count has changed and energy needed
 
   if ((eflag_global || eflag_atom) && atom->natoms != natoms_original) {
-    if (termflag[0]) qsum_qsq();
+    if (termflag[TERM_COUL]) qsum_qsq();
     natoms_original = atom->natoms;
   }
 
