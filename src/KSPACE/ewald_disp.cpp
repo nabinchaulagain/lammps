@@ -99,16 +99,8 @@ EwaldDisp::EwaldDisp(LAMMPS *lmp) : KSpace(lmp),
 {
   ewaldflag = dispersionflag = dipoleflag = 1;
 
-  memset(termflag, 0, EwaldConst::EWALD_NTERMS*sizeof(int));
-  kenergy = kvirial = nullptr;
-  sfac = sfac_all = nullptr;
-  ekr = nullptr;
-  hvec = nullptr;
-  kvec = nullptr;
-  B = nullptr;
+  memset(termflag, 0, EWALD_NTERMS*sizeof(int));
   first_output = 0;
-  energy_self_peratom = nullptr;
-  virial_self_peratom = nullptr;
   nmax = 0;
   q2 = 0;
   b2 = 0;
