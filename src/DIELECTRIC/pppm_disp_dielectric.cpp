@@ -33,6 +33,7 @@
 #include <cstring>
 
 using namespace LAMMPS_NS;
+using namespace EwaldConst;
 using namespace MathConst;
 
 static constexpr double SMALL = 0.00001;
@@ -89,17 +90,17 @@ void PPPMDispDielectric::compute(int eflag, int vflag)
 
   if (atom->nmax > nmax) {
 
-    if (function[0]) {
+    if (termflag[0]) {
       memory->destroy(part2grid);
       memory->destroy(efield);
     }
-    if (function[1] + function[2] + function[3]) memory->destroy(part2grid_6);
+    if (termflag[1] + termflag[2] + termflag[3]) memory->destroy(part2grid_6);
     nmax = atom->nmax;
-    if (function[0]) {
+    if (termflag[0]) {
       memory->create(part2grid,nmax,3,"pppm/disp:part2grid");
       memory->create(efield,nmax,3,"pppm/disp:efield");
     }
-    if (function[1] + function[2] + function[3])
+    if (termflag[1] + termflag[2] + termflag[3])
       memory->create(part2grid_6,nmax,3,"pppm/disp:part2grid_6");
   }
 
@@ -115,7 +116,7 @@ void PPPMDispDielectric::compute(int eflag, int vflag)
   // communication between processors
   // calculation of forces
 
-  if (function[0]) {
+  if (termflag[0]) {
 
     // perform calculations for coulomb interactions only
 
@@ -171,7 +172,7 @@ void PPPMDispDielectric::compute(int eflag, int vflag)
     if (evflag_atom) fieldforce_c_peratom();
   }
 
-  if (function[1]) {
+  if (termflag[1]) {
 
     // perform calculations for geometric mixing
 
@@ -231,7 +232,7 @@ void PPPMDispDielectric::compute(int eflag, int vflag)
     if (evflag_atom) fieldforce_g_peratom();
   }
 
-  if (function[2]) {
+  if (termflag[2]) {
 
     // perform calculations for arithmetic mixing
 
@@ -326,7 +327,7 @@ void PPPMDispDielectric::compute(int eflag, int vflag)
     if (evflag_atom) fieldforce_a_peratom();
   }
 
-  if (function[3]) {
+  if (termflag[3]) {
 
     // perform calculations if no mixing rule applies
 
@@ -402,7 +403,7 @@ void PPPMDispDielectric::compute(int eflag, int vflag)
 
   if (eflag_global) {
 
-    if (function[0]) {
+    if (termflag[0]) {
 
       // switch to unscaled charges to find charge density
 
@@ -470,7 +471,7 @@ void PPPMDispDielectric::compute(int eflag, int vflag)
     for (i = 0; i < 6; i++) virial[i] = 0.5*qscale*volume*virial_all[i];
     MPI_Allreduce(virial_6,virial_all,6,MPI_DOUBLE,MPI_SUM,world);
     for (i = 0; i < 6; i++) virial[i] += 0.5*volume*virial_all[i];
-    if (function[1]+function[2]+function[3]) {
+    if (termflag[1]+termflag[2]+termflag[3]) {
       double a =  MY_PI*MY_PIS/(6*volume)*pow(g_ewald_6,3)*csumij;
       virial[0] -= a;
       virial[1] -= a;
@@ -479,7 +480,7 @@ void PPPMDispDielectric::compute(int eflag, int vflag)
   }
 
   if (eflag_atom) {
-    if (function[0]) {
+    if (termflag[0]) {
       double *q = atom->q;
       // coulomb self energy correction
       for (i = 0; i < atom->nlocal; i++) {
@@ -487,7 +488,7 @@ void PPPMDispDielectric::compute(int eflag, int vflag)
           qscale*MY_PI2*q[i]*qsum / (g_ewald*g_ewald*volume);
       }
     }
-    if (function[1] + function[2] + function[3]) {
+    if (termflag[1] + termflag[2] + termflag[3]) {
       int tmp;
       for (i = 0; i < atom->nlocal; i++) {
         tmp = atom->type[i];
@@ -498,7 +499,7 @@ void PPPMDispDielectric::compute(int eflag, int vflag)
   }
 
   if (vflag_atom) {
-    if (function[1] + function[2] + function[3]) {
+    if (termflag[1] + termflag[2] + termflag[3]) {
       int tmp;
       // dispersion self virial correction
       for (i = 0; i < atom->nlocal; i++) {
@@ -512,8 +513,8 @@ void PPPMDispDielectric::compute(int eflag, int vflag)
   // 2d slab correction
 
   if (slabflag) slabcorr(eflag);
-  if (function[0]) energy += energy_1;
-  if (function[1] + function[2] + function[3]) energy += energy_6;
+  if (termflag[0]) energy += energy_1;
+  if (termflag[1] + termflag[2] + termflag[3]) energy += energy_6;
 
   // convert atoms back from lamda to box coords
 
