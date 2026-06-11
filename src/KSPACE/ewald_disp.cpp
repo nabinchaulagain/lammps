@@ -476,9 +476,9 @@ void EwaldDisp::reallocate_atoms()
 void EwaldDisp::allocate_peratom()
 {
   memory->create(energy_self_peratom,
-      atom->nmax,EwaldConst::EWALD_NTERMS,"ewald/n:energy_self_peratom");
+      atom->nmax,EWALD_NTERMS,"ewald/disp:energy_self_peratom");
   memory->create(virial_self_peratom,
-      atom->nmax,EwaldConst::EWALD_NTERMS,"ewald/n:virial_self_peratom");
+      atom->nmax,EWALD_NTERMS,"ewald/disp:virial_self_peratom");
 }
 
 /* ---------------------------------------------------------------------- */
