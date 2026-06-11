@@ -604,43 +604,35 @@ void EwaldDisp::init_coeffs()
 
 void EwaldDisp::init_coeff_sums()
 {
-  if (coeff_sums_flag) return;                            // calculated only once
+  if (coeff_sums_flag) return;                          // calculated only once
   coeff_sums_flag = 1;
 
   Sum sum_local[EWALD_MAX_NSUMS];
 
   memset(sum_local, 0, EWALD_MAX_NSUMS*sizeof(Sum));
-  memset(coeff_sum,       0, EWALD_MAX_NSUMS*sizeof(Sum));
+  memset(coeff_sum, 0, EWALD_MAX_NSUMS*sizeof(Sum));
 
-  // now perform qsum and qsq via parent qsum_qsq()
+  // sum_local[0] stays zero: the charge sums are computed by qsum_qsq()
 
-  sum_local[0].x = 0.0;
-  sum_local[0].x2 = 0.0;
+  const int nlocal = atom->nlocal;
+  const int *type = atom->type;
 
-  //if (function[0]) {                                        // 1/r
-  //  double *q = atom->q, *qn = q+atom->nlocal;
-  //  for (double *i=q; i<qn; ++i) {
-  //    sum_local[0].x += i[0]; sum_local[0].x2 += i[0]*i[0]; }
-  //}
-
-  if (termflag[1]) {                                        // geometric 1/r^6
-    int *type = atom->type, *ntype = type+atom->nlocal;
-    for (int *i=type; i<ntype; ++i) {
-      sum_local[1].x += B[i[0]]; sum_local[1].x2 += B[i[0]]*B[i[0]]; }
-  }
-  if (termflag[2]) {                                        // arithmetic 1/r^6
-    double *bi;
-    int *type = atom->type, *ntype = type+atom->nlocal;
-    for (int *i=type; i<ntype; ++i) {
-      bi = B+7*i[0];
-      sum_local[2].x2 += bi[0]*bi[6];
-      for (int k=2; k<9; ++k) sum_local[k].x += *(bi++);
+  if (termflag[TERM_DISP_GEOM]) {                       // geometric 1/r^6
+    for (int i = 0; i < nlocal; i++) {
+      sum_local[1].x += B[type[i]];
+      sum_local[1].x2 += B[type[i]]*B[type[i]];
     }
   }
-  if (termflag[3]&&atom->mu) {                                // dipole
-    double *mu = atom->mu[0], *nmu = mu+4*atom->nlocal;
-    for (double *i = mu; i < nmu; i += 4)
-      sum_local[9].x2 += i[3]*i[3];
+  if (termflag[TERM_DISP_ARITH]) {                      // arithmetic 1/r^6
+    for (int i = 0; i < nlocal; i++) {
+      const double *bi = B + 7*type[i];
+      sum_local[2].x2 += bi[0]*bi[6];
+      for (int k = 2; k < 9; k++) sum_local[k].x += bi[k-2];
+    }
+  }
+  if (termflag[TERM_DIPOLE] && atom->mu) {              // dipole
+    double **mu = atom->mu;
+    for (int i = 0; i < nlocal; i++) sum_local[9].x2 += mu[i][3]*mu[i][3];
   }
   MPI_Allreduce(sum_local, coeff_sum, 2*EWALD_MAX_NSUMS, MPI_DOUBLE, MPI_SUM, world);
 }
