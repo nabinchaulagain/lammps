@@ -1048,90 +1048,92 @@ void EwaldDisp::compute_energy_peratom()
 {
   if (!eflag_atom) return;
 
-  kvector *k;
-  hvector *h, *nh;
-  cvector *z = ekr;
-  double mui[3] = {0.0,0.0,0.0};
-  double mysum[EWALD_MAX_NSUMS];
-  complex *cek, zc = {0, 0}, zx = {0, 0}, zxy = {0, 0};
-  complex *cek_coul;
-  double *q = atom->q;
-  double *eatomj = eatom;
-  double *mu = atom->mu ? atom->mu[0] : nullptr;
+  const int nz = 2*kmax+1;
+  const int nlocal = atom->nlocal;
+  const double *q = atom->q;
+  const int *type = atom->type;
+  double **mu = atom->mu;
   const double qscale = force->qqrd2e * scale;
-  double *ke = kenergy;
-  double c[EwaldConst::EWALD_NTERMS] = {
-      4.0*MY_PI*qscale/volume, 2.0*MY_PI*MY_PIS/(24.0*volume),
-      2.0*MY_PI*MY_PIS/(192.0*volume), 4.0*MY_PI*mumurd2e/volume};
-  int i, kx, ky, lbytes = (2*kmax+1)*sizeof(cvector), *type = atom->type;
-  int func[EwaldConst::EWALD_NTERMS];
+  const double c[EWALD_NTERMS] = {
+    4.0*MY_PI*qscale/volume, 2.0*MY_PI*MY_PIS/(24.0*volume),
+    2.0*MY_PI*MY_PIS/(192.0*volume), 4.0*MY_PI*mumurd2e/volume};
+  double esum[EWALD_MAX_NSUMS];
+  double mui[3] = {0.0,0.0,0.0};
 
-  memcpy(func, termflag, EwaldConst::EWALD_NTERMS*sizeof(int));
-  for (int j = 0; j < atom->nlocal; j++, ++eatomj) {
-    k = kvec;
-    kx = ky = -1;
-    ke = kenergy;
-    cek = sfac_all;
-    memset(mysum, 0, EWALD_MAX_NSUMS*sizeof(double));
-    if (func[3]) {
-      double di = c[3];
-      mui[0] = di*(mu++)[0]; mui[1] = di*(mu++)[0]; mui[2] = di*(mu++)[0];
-      mu++;
-    }
-    for (nh = (h = hvec)+kcount; h<nh; ++h, ++k) {
-      if (ky!=k->y) {                              // based on order in
-        if (kx!=k->x) zx = z[kx = k->x].x;                 // reallocate
-        c_rmult(zxy, z[ky = k->y].y, zx);
-      }
-      c_crmult(zc, z[k->z].z, zxy);
-      if (func[0]) {                                        // 1/r
-        mysum[0] += *(ke++)*(cek->re*zc.re - cek->im*zc.im);
-        if (func[3]) cek_coul = cek;
-        ++cek;
-      }
-      if (func[1]) {                                        // geometric 1/r^6
-        mysum[1] += *(ke++)*(cek->re*zc.re - cek->im*zc.im); ++cek; }
-      if (func[2]) {                                        // arithmetic 1/r^6
-        double im, c = *(ke++);
-        for (i=2; i<9; ++i) {
-          im = c*(cek->re*zc.re - cek->im*zc.im); ++cek;
-          mysum[i] += im;
-        }
-      }
-      if (func[3]) {                                        // dipole
-        double muk = (mui[0]*h->x+mui[1]*h->y+mui[2]*h->z);
-        mysum[9] += (*ke)*(cek->re*zc.re - cek->im*zc.im)*muk;
-        if (func[0]) {                                      // charge-dipole
-          double qj = (*q)*c[0];
-          mysum[9] += (*ke)*(cek_coul->im*zc.re + cek_coul->re*zc.im)*muk;
-          mysum[9] -= (*ke)*(cek->re*zc.im + cek->im*zc.re)*qj;
-        }
-        ++cek;
-        ke++;
-      }
+  for (int i = 0; i < nlocal; i++) {
+    const cvector *z = &ekr[i*nz];
+    int n = 0, ne = 0, ncoul = 0;
+    int kxold = -1, kyold = -1;
+    complex zx = {0, 0}, zxy = {0, 0}, zc = {0, 0};
+
+    memset(esum, 0, EWALD_MAX_NSUMS*sizeof(double));
+    if (termflag[TERM_DIPOLE]) {
+      mui[0] = c[TERM_DIPOLE]*mu[i][0];
+      mui[1] = c[TERM_DIPOLE]*mu[i][1];
+      mui[2] = c[TERM_DIPOLE]*mu[i][2];
     }
 
-    if (func[0]) {                                        // 1/r
-      double qj = *(q++)*c[0];
-      *eatomj += mysum[0]*qj - energy_self_peratom[j][0];
-    }
-    if (func[1]) {                                        // geometric 1/r^6
-      double bj = B[*type]*c[1];
-      *eatomj += mysum[1]*bj - energy_self_peratom[j][1];
-    }
-    if (func[2]) {                                        // arithmetic 1/r^6
-      double *bj = B+7*type[0]+7;
-      for (i=2; i<9; ++i) {
-        double c2 = (--bj)[0]*c[2];
-        *eatomj += 0.5*mysum[i]*c2;
+    for (int k = 0; k < kcount; k++) {
+      const int kx = kvec[k].x, ky = kvec[k].y, kz = kvec[k].z;
+
+      // see eik_dot_r() for the reuse of zx and zxy
+
+      if (ky != kyold) {
+        if (kx != kxold) { zx = z[kx].x; kxold = kx; }
+        c_rmult(zxy, z[ky].y, zx);
+        kyold = ky;
       }
-      *eatomj -= energy_self_peratom[j][2];
+      c_crmult(zc, z[kz].z, zxy);
+
+      if (termflag[TERM_COUL]) {                        // 1/r
+        esum[0] += kenergy[ne++]*(sfac_all[n].re*zc.re-sfac_all[n].im*zc.im);
+        if (termflag[TERM_DIPOLE]) ncoul = n;
+        n++;
+      }
+      if (termflag[TERM_DISP_GEOM]) {                   // geometric 1/r^6
+        esum[1] += kenergy[ne++]*(sfac_all[n].re*zc.re-sfac_all[n].im*zc.im);
+        n++;
+      }
+      if (termflag[TERM_DISP_ARITH]) {                  // arithmetic 1/r^6
+        const double ck = kenergy[ne++];
+        for (int m = 2; m < 9; m++) {
+          esum[m] += ck*(sfac_all[n].re*zc.re-sfac_all[n].im*zc.im);
+          n++;
+        }
+      }
+      if (termflag[TERM_DIPOLE]) {                      // dipole
+        const double muk = mui[0]*hvec[k].x+mui[1]*hvec[k].y+mui[2]*hvec[k].z;
+        esum[9] += kenergy[ne]*(sfac_all[n].re*zc.re-sfac_all[n].im*zc.im)*muk;
+        if (termflag[TERM_COUL]) {                      // charge-dipole
+          const double qj = q[i]*c[TERM_COUL];
+          esum[9] += kenergy[ne]*
+            (sfac_all[ncoul].im*zc.re+sfac_all[ncoul].re*zc.im)*muk;
+          esum[9] -= kenergy[ne]*(sfac_all[n].re*zc.im+sfac_all[n].im*zc.re)*qj;
+        }
+        n++;
+        ne++;
+      }
     }
-    if (func[3]) {                                        // dipole
-      *eatomj += mysum[9] - energy_self_peratom[j][3];
+
+    if (termflag[TERM_COUL]) {                          // 1/r
+      const double qj = q[i]*c[TERM_COUL];
+      eatom[i] += esum[0]*qj - energy_self_peratom[i][TERM_COUL];
     }
-    z = (cvector *) ((char *) z+lbytes);
-    ++type;
+    if (termflag[TERM_DISP_GEOM]) {                     // geometric 1/r^6
+      const double bj = B[type[i]]*c[TERM_DISP_GEOM];
+      eatom[i] += esum[1]*bj - energy_self_peratom[i][TERM_DISP_GEOM];
+    }
+    if (termflag[TERM_DISP_ARITH]) {                    // arithmetic 1/r^6
+      const double *bj = &B[7*type[i]];
+      for (int m = 2; m < 9; m++) {
+        const double c2 = bj[8-m]*c[TERM_DISP_ARITH];
+        eatom[i] += 0.5*esum[m]*c2;
+      }
+      eatom[i] -= energy_self_peratom[i][TERM_DISP_ARITH];
+    }
+    if (termflag[TERM_DIPOLE]) {                        // dipole
+      eatom[i] += esum[9] - energy_self_peratom[i][TERM_DIPOLE];
+    }
   }
 }
 
