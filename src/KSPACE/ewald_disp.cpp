@@ -1282,125 +1282,102 @@ void EwaldDisp::compute_virial_peratom()
 {
   if (!vflag_atom) return;
 
-  kvector *k;
-  hvector *h, *nh;
-  cvector *z = ekr;
-  double  mui[3] = {0.0,0.0,0.0};
-  complex *cek, zc = {0, 0}, zx = {0, 0}, zxy = {0, 0};
-  complex *cek_coul;
-  double *kv;
-  double *q = atom->q;
-  double *vatomj = vatom ? vatom[0] : nullptr;
-  double *mu = atom->mu ? atom->mu[0] : nullptr;
+  const int nz = 2*kmax+1;
+  const int nlocal = atom->nlocal;
+  const double *q = atom->q;
+  const int *type = atom->type;
+  double **mu = atom->mu;
   const double qscale = force->qqrd2e * scale;
-  double c[EwaldConst::EWALD_NTERMS] = {
+  const double c[EWALD_NTERMS] = {
     4.0*MY_PI*qscale/volume, 2.0*MY_PI*MY_PIS/(24.0*volume),
     2.0*MY_PI*MY_PIS/(192.0*volume), 4.0*MY_PI*mumurd2e/volume};
-  double mysum[EWALD_MAX_NSUMS][6];
-  int func[EwaldConst::EWALD_NTERMS];
+  double vsum[EWALD_MAX_NSUMS][6];
+  double mui[3] = {0.0,0.0,0.0};
 
-  memcpy(func, termflag, EwaldConst::EWALD_NTERMS*sizeof(int));
-  int i, kx, ky, lbytes = (2*kmax+1)*sizeof(cvector), *type = atom->type;
-  for (int j = 0; j < atom->nlocal; j++) {
-    k = kvec;
-    kx = ky = -1;
-    kv = kvirial;
-    cek = sfac_all;
-    memset(mysum, 0, EWALD_MAX_NSUMS*6*sizeof(double));
-    if (func[3]) {
-      double di = c[3];
-      mui[0] = di*(mu++)[0]; mui[1] = di*(mu++)[0]; mui[2] = di*(mu++)[0];
-      mu++;
+  for (int i = 0; i < nlocal; i++) {
+    const cvector *z = &ekr[i*nz];
+    int n = 0, nv = 0, ncoul = 0;
+    int kxold = -1, kyold = -1;
+    complex zx = {0, 0}, zxy = {0, 0}, zc = {0, 0};
+
+    memset(vsum, 0, EWALD_MAX_NSUMS*6*sizeof(double));
+    if (termflag[TERM_DIPOLE]) {
+      mui[0] = c[TERM_DIPOLE]*mu[i][0];
+      mui[1] = c[TERM_DIPOLE]*mu[i][1];
+      mui[2] = c[TERM_DIPOLE]*mu[i][2];
     }
-    for (nh = (h = hvec)+kcount; h<nh; ++h, ++k) {
-      if (ky!=k->y) {                                // based on order in
-          if (kx!=k->x) zx = z[kx = k->x].x;                 // reallocate
-          c_rmult(zxy, z[ky = k->y].y, zx);
+
+    for (int k = 0; k < kcount; k++) {
+      const int kx = kvec[k].x, ky = kvec[k].y, kz = kvec[k].z;
+
+      // see eik_dot_r() for the reuse of zx and zxy
+
+      if (ky != kyold) {
+        if (kx != kxold) { zx = z[kx].x; kxold = kx; }
+        c_rmult(zxy, z[ky].y, zx);
+        kyold = ky;
       }
-      c_crmult(zc, z[k->z].z, zxy);
-      if (func[0]) {                                        // 1/r
-          if (func[3]) cek_coul = cek;
-          double r = cek->re*zc.re - cek->im*zc.im; ++cek;
-          mysum[0][0] += *(kv++)*r;
-          mysum[0][1] += *(kv++)*r;
-          mysum[0][2] += *(kv++)*r;
-          mysum[0][3] += *(kv++)*r;
-          mysum[0][4] += *(kv++)*r;
-          mysum[0][5] += *(kv++)*r;
+      c_crmult(zc, z[kz].z, zxy);
+
+      if (termflag[TERM_COUL]) {                        // 1/r
+        if (termflag[TERM_DIPOLE]) ncoul = n;
+        const double r = sfac_all[n].re*zc.re-sfac_all[n].im*zc.im;
+        n++;
+        for (int m = 0; m < 6; m++) vsum[0][m] += kvirial[nv+m]*r;
+        nv += 6;
       }
-      if (func[1]) {                                        // geometric 1/r^6
-          double r = cek->re*zc.re - cek->im*zc.im; ++cek;
-          mysum[1][0] += *(kv++)*r;
-          mysum[1][1] += *(kv++)*r;
-          mysum[1][2] += *(kv++)*r;
-          mysum[1][3] += *(kv++)*r;
-          mysum[1][4] += *(kv++)*r;
-          mysum[1][5] += *(kv++)*r;
+      if (termflag[TERM_DISP_GEOM]) {                   // geometric 1/r^6
+        const double r = sfac_all[n].re*zc.re-sfac_all[n].im*zc.im;
+        n++;
+        for (int m = 0; m < 6; m++) vsum[1][m] += kvirial[nv+m]*r;
+        nv += 6;
       }
-      if (func[2]) {                                        // arithmetic 1/r^6
-        double r;
-        for (i=2; i<9; ++i) {
-          r = cek->re*zc.re - cek->im*zc.im; ++cek;
-          mysum[i][0] += *(kv++)*r;
-          mysum[i][1] += *(kv++)*r;
-          mysum[i][2] += *(kv++)*r;
-          mysum[i][3] += *(kv++)*r;
-          mysum[i][4] += *(kv++)*r;
-          mysum[i][5] += *(kv++)*r;
-      kv -= 6;
+      if (termflag[TERM_DISP_ARITH]) {                  // arithmetic 1/r^6
+        // the seven sub-channels share the same six kvirial entries
+        for (int s = 2; s < 9; s++) {
+          const double r = sfac_all[n].re*zc.re-sfac_all[n].im*zc.im;
+          n++;
+          for (int m = 0; m < 6; m++) vsum[s][m] += kvirial[nv+m]*r;
         }
-    kv += 6;
+        nv += 6;
       }
-      if (func[3]) {                                        // dipole
-         double muk = (mui[0]*h->x+mui[1]*h->y+mui[2]*h->z);
-         double
-           r = (cek->re*zc.re - cek->im*zc.im)*muk;
-         mysum[9][0] += *(kv++)*r;
-         mysum[9][1] += *(kv++)*r;
-         mysum[9][2] += *(kv++)*r;
-         mysum[9][3] += *(kv++)*r;
-         mysum[9][4] += *(kv++)*r;
-         mysum[9][5] += *(kv++)*r;
-         if (func[0]) {                                      // charge-dipole
-           kv -= 6;
-           double qj = (*q)*c[0];
-           r = (cek_coul->im*zc.re + cek_coul->re*zc.im)*muk;
-           r += -(cek->re*zc.im + cek->im*zc.re)*qj;
-           mysum[9][0] += *(kv++)*r; mysum[9][1] += *(kv++)*r; mysum[9][2] += *(kv++)*r;
-           mysum[9][3] += *(kv++)*r; mysum[9][4] += *(kv++)*r; mysum[9][5] += *(kv++)*r;
-         }
-         ++cek;
+      if (termflag[TERM_DIPOLE]) {                      // dipole
+        const double muk = mui[0]*hvec[k].x+mui[1]*hvec[k].y+mui[2]*hvec[k].z;
+        double r = (sfac_all[n].re*zc.re-sfac_all[n].im*zc.im)*muk;
+        for (int m = 0; m < 6; m++) vsum[9][m] += kvirial[nv+m]*r;
+        if (termflag[TERM_COUL]) {                      // charge-dipole
+          const double qj = q[i]*c[TERM_COUL];
+          r = (sfac_all[ncoul].im*zc.re+sfac_all[ncoul].re*zc.im)*muk;
+          r += -(sfac_all[n].re*zc.im+sfac_all[n].im*zc.re)*qj;
+          for (int m = 0; m < 6; m++) vsum[9][m] += kvirial[nv+m]*r;
+        }
+        nv += 6;
+        n++;
       }
     }
 
-    if (func[0]) {                                        // 1/r
-      double qi = *(q++)*c[0];
-      for (int n = 0; n < 6; n++) vatomj[n] += mysum[0][n]*qi;
+    if (termflag[TERM_COUL]) {                          // 1/r
+      const double qi = q[i]*c[TERM_COUL];
+      for (int m = 0; m < 6; m++) vatom[i][m] += vsum[0][m]*qi;
     }
-    if (func[1]) {                                        // geometric 1/r^6
-      double bi = B[*type]*c[1];
-      for (int n = 0; n < 6; n++) vatomj[n] += mysum[1][n]*bi;
+    if (termflag[TERM_DISP_GEOM]) {                     // geometric 1/r^6
+      const double bi = B[type[i]]*c[TERM_DISP_GEOM];
+      for (int m = 0; m < 6; m++) vatom[i][m] += vsum[1][m]*bi;
     }
-    if (func[2]) {                                        // arithmetic 1/r^6
-      double *bj = B+7*type[0]+7;
-      for (i=2; i<9; ++i) {
-        double c2 = (--bj)[0]*c[2];
-        for (int n = 0; n < 6; n++) vatomj[n] += 0.5*mysum[i][n]*c2;
+    if (termflag[TERM_DISP_ARITH]) {                    // arithmetic 1/r^6
+      const double *bj = &B[7*type[i]];
+      for (int s = 2; s < 9; s++) {
+        const double c2 = bj[8-s]*c[TERM_DISP_ARITH];
+        for (int m = 0; m < 6; m++) vatom[i][m] += 0.5*vsum[s][m]*c2;
       }
     }
-    if (func[3]) {                                        // dipole
-      for (int n = 0; n < 6; n++) vatomj[n] += mysum[9][n];
+    if (termflag[TERM_DIPOLE]) {                        // dipole
+      for (int m = 0; m < 6; m++) vatom[i][m] += vsum[9][m];
     }
 
-    for (int k=0; k<EwaldConst::EWALD_NTERMS; ++k) {
-      if (func[k]) {
-        for (int n = 0; n < 3; n++) vatomj[n] -= virial_self_peratom[j][k];
-      }
-    }
-
-    z = (cvector *) ((char *) z+lbytes);
-    ++type;
-    vatomj += 6;
+    for (int t = 0; t < EWALD_NTERMS; t++)
+      if (termflag[t])
+        for (int m = 0; m < 3; m++) vatom[i][m] -= virial_self_peratom[i][t];
   }
 }
 
