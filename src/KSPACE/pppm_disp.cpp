@@ -2124,7 +2124,7 @@ void PPPMDisp::allocate_peratom()
   // Coulomb grids
   // --------------------------------------
 
-  if (termflag[0]) {
+  if (termflag[TERM_COUL]) {
     if (differentiation_flag != 1)
       memory->create3d_offset(u_brick,nzlo_out,nzhi_out,nylo_out,nyhi_out,
                               nxlo_out,nxhi_out,"pppm/disp:u_brick");
@@ -2157,7 +2157,7 @@ void PPPMDisp::allocate_peratom()
   // dispersion grids with geometric mixing
   // --------------------------------------
 
-  if (termflag[1]) {
+  if (termflag[TERM_DISP_GEOM]) {
     if (differentiation_flag != 1 )
       memory->create3d_offset(u_brick_g,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
                               nxlo_out_6,nxhi_out_6,"pppm/disp:u_brick_g");
@@ -2190,7 +2190,7 @@ void PPPMDisp::allocate_peratom()
   // dispersion grids with arithmetic mixing
   // --------------------------------------
 
-  if (termflag[2]) {
+  if (termflag[TERM_DISP_ARITH]) {
     if (differentiation_flag != 1) {
       memory->create3d_offset(u_brick_a0,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
                               nxlo_out_6,nxhi_out_6,"pppm/disp:u_brick_a0");
@@ -2315,7 +2315,7 @@ void PPPMDisp::allocate_peratom()
   // dispersion grids with no mixing
   // --------------------------------------
 
-  if (termflag[3]) {
+  if (termflag[TERM_DISP_NONE]) {
     if (differentiation_flag != 1)
       memory->create4d_offset(u_brick_none,nsplit_alloc,
                               nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
