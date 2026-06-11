@@ -680,70 +680,50 @@ void EwaldDisp::init_self_peratom()
 
   double g1 = g_ewald, g2 = g1*g1, g3 = g1*g2;
   const double qscale = force->qqrd2e * scale;
-  double *energy = energy_self_peratom[0];
-  double *virial = virial_self_peratom[0];
-  int nlocal = atom->nlocal;
+  const int nlocal = atom->nlocal;
 
-  memset(energy, 0, EwaldConst::EWALD_NTERMS*nlocal*sizeof(double));
-  memset(virial, 0, EwaldConst::EWALD_NTERMS*nlocal*sizeof(double));
+  memset(energy_self_peratom[0], 0, EWALD_NTERMS*nlocal*sizeof(double));
+  memset(virial_self_peratom[0], 0, EWALD_NTERMS*nlocal*sizeof(double));
 
-  if (termflag[0]) {                                        // 1/r
-    double *ei = energy;
-    double *vi = virial;
-    double ce = qscale*g1/MY_PIS;
-    double cv = -0.5*MY_PI*qscale/(g2*volume);
-    double *qi = atom->q, *qn = qi + nlocal;
-    for (; qi < qn; qi++, vi += EwaldConst::EWALD_NTERMS, ei += EwaldConst::EWALD_NTERMS) {
-      double q = *qi;
-      *vi = cv*q*qsum;
-      *ei = ce*q*q-vi[0];
+  if (termflag[TERM_COUL]) {                            // 1/r
+    const double *q = atom->q;
+    const double ce = qscale*g1/MY_PIS;
+    const double cv = -0.5*MY_PI*qscale/(g2*volume);
+    for (int i = 0; i < nlocal; i++) {
+      virial_self_peratom[i][TERM_COUL] = cv*q[i]*qsum;
+      energy_self_peratom[i][TERM_COUL] =
+        ce*q[i]*q[i]-virial_self_peratom[i][TERM_COUL];
     }
   }
-  if (termflag[1]) {                                        // geometric 1/r^6
-    double *ei = energy+1;
-    double *vi = virial+1;
-    double ce = -g3*g3/12.0;
-    double cv = MY_PI*MY_PIS*g3/(6.0*volume);
-    int *typei = atom->type, *typen = typei + atom->nlocal;
-    for (; typei < typen; typei++, vi += EwaldConst::EWALD_NTERMS, ei += EwaldConst::EWALD_NTERMS) {
-      double b = B[*typei];
-      *vi = cv*b*coeff_sum[1].x;
-      *ei = ce*b*b+vi[0];
+  if (termflag[TERM_DISP_GEOM]) {                       // geometric 1/r^6
+    const int *type = atom->type;
+    const double ce = -g3*g3/12.0;
+    const double cv = MY_PI*MY_PIS*g3/(6.0*volume);
+    for (int i = 0; i < nlocal; i++) {
+      const double b = B[type[i]];
+      virial_self_peratom[i][TERM_DISP_GEOM] = cv*b*coeff_sum[1].x;
+      energy_self_peratom[i][TERM_DISP_GEOM] =
+        ce*b*b+virial_self_peratom[i][TERM_DISP_GEOM];
     }
   }
-  if (termflag[2]) {                                        // arithmetic 1/r^6
-    double *bi;
-    double *ei = energy+2;
-    double *vi = virial+2;
-    double ce = -g3*g3/3.0;
-    double cv = 0.5*MY_PI*MY_PIS*g3/(48.0*volume);
-    int *typei = atom->type, *typen = typei + atom->nlocal;
-    for (; typei < typen; typei++, vi += EwaldConst::EWALD_NTERMS, ei += EwaldConst::EWALD_NTERMS) {
-      bi = B+7*typei[0]+7;
-      for (int k=2; k<9; ++k) *vi += cv*coeff_sum[k].x*(--bi)[0];
-
-      /* PJV 20120225:
-         should this be this instead?  above implies an inverse dependence
-         seems to be the above way in original;  i recall having tested
-         arithmetic mixing in the conception phase, but an extra test would
-         be prudent (pattern repeats in multiple functions below)
-
-      bi = B+7*typei[0];
-      for (int k=2; k<9; ++k) *vi += cv*sum[k].x*(bi++)[0];
-
-      */
-
-      *ei = ce*bi[0]*bi[6]+vi[0];
+  if (termflag[TERM_DISP_ARITH]) {                      // arithmetic 1/r^6
+    const int *type = atom->type;
+    const double ce = -g3*g3/3.0;
+    const double cv = 0.5*MY_PI*MY_PIS*g3/(48.0*volume);
+    for (int i = 0; i < nlocal; i++) {
+      const double *bi = B + 7*type[i];
+      for (int k = 2; k < 9; k++)
+        virial_self_peratom[i][TERM_DISP_ARITH] += cv*coeff_sum[k].x*bi[8-k];
+      energy_self_peratom[i][TERM_DISP_ARITH] =
+        ce*bi[0]*bi[6]+virial_self_peratom[i][TERM_DISP_ARITH];
     }
   }
-  if (termflag[3]&&atom->mu) {                                // dipole
-    double *ei = energy+3;
-    double *vi = virial+3;
-    double *imu = atom->mu[0], *nmu = imu+4*atom->nlocal;
-    double ce = mumurd2e*2.0*g3/3.0/MY_PIS;
-    for (; imu < nmu; imu += 4, vi += EwaldConst::EWALD_NTERMS, ei += EwaldConst::EWALD_NTERMS) {
-      *vi = 0;                                                // in surface
-      *ei = ce*imu[3]*imu[3]-vi[0];
+  if (termflag[TERM_DIPOLE] && atom->mu) {              // dipole
+    double **mu = atom->mu;
+    const double ce = mumurd2e*2.0*g3/3.0/MY_PIS;
+    for (int i = 0; i < nlocal; i++) {
+      virial_self_peratom[i][TERM_DIPOLE] = 0.0;
+      energy_self_peratom[i][TERM_DIPOLE] = ce*mu[i][3]*mu[i][3];
     }
   }
 }
