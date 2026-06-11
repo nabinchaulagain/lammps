@@ -878,105 +878,117 @@ void EwaldDisp::eik_dot_r()
 
 void EwaldDisp::compute_force()
 {
-  kvector *k;
-  hvector *h, *nh;
-  cvector *z = ekr;
-  double mysum[EWALD_MAX_NSUMS][3], mui[3] = {0.0,0.0,0.0};
-  complex *cek, zc, zx = {0, 0}, zxy = {0, 0};
-  complex *cek_coul;
-  double *f = atom->f[0], *fn = f+3*atom->nlocal, *q = atom->q, *t = nullptr;
-  double *mu = atom->mu ? atom->mu[0] : nullptr;
+  const int nz = 2*kmax+1;
+  const int nlocal = atom->nlocal;
+  double **f = atom->f;
+  double **tq = atom->torque;
+  const double *q = atom->q;
+  const int *type = atom->type;
+  double **mu = atom->mu;
   const double qscale = force->qqrd2e * scale;
-  double *ke, c[EwaldConst::EWALD_NTERMS] = {
+  const double c[EWALD_NTERMS] = {
     8.0*MY_PI*qscale/volume, 2.0*MY_PI*MY_PIS/(12.0*volume),
     2.0*MY_PI*MY_PIS/(192.0*volume), 8.0*MY_PI*mumurd2e/volume};
-  int i, kx, ky, lbytes = (2*kmax+1)*sizeof(cvector), *type = atom->type;
-  int func[EwaldConst::EWALD_NTERMS];
+  double eksum[EWALD_MAX_NSUMS][3];
+  double mui[3] = {0.0,0.0,0.0};
 
-  if (atom->torque) t = atom->torque[0];
-  memcpy(func, termflag, EwaldConst::EWALD_NTERMS*sizeof(int));
-  memset(mysum, 0, EWALD_MAX_NSUMS*3*sizeof(double)); // fj = -dE/dr =
-  for (; f<fn; f+=3) {                                           //      -i*qj*fac*
-    k = kvec;                                                    //       Sum[conj(d)-d]
-    kx = ky = -1;                                                // d = k*conj(ekj)*ek
-    ke = kenergy;
-    cek = sfac_all;
-    memset(mysum, 0, EWALD_MAX_NSUMS*3*sizeof(double));
-    if (func[3]) {
-      double di = c[3];
-      mui[0] = di*(mu++)[0]; mui[1] = di*(mu++)[0]; mui[2] = di*(mu++)[0];
-      mu++;
+  for (int i = 0; i < nlocal; i++) {
+    const cvector *z = &ekr[i*nz];
+    int n = 0, ne = 0;                 // running indices into sfac_all/kenergy
+    int ncoul = 0;                     // coulomb channel index for charge-dipole
+    int kxold = -1, kyold = -1;
+    complex zx = {0, 0}, zxy = {0, 0}, zc;
+
+    memset(eksum, 0, EWALD_MAX_NSUMS*3*sizeof(double));
+    if (termflag[TERM_DIPOLE]) {
+      mui[0] = c[TERM_DIPOLE]*mu[i][0];
+      mui[1] = c[TERM_DIPOLE]*mu[i][1];
+      mui[2] = c[TERM_DIPOLE]*mu[i][2];
     }
-    for (nh = (h = hvec)+kcount; h<nh; ++h, ++k) {
-      if (ky!=k->y) {                                   // based on order in
-        if (kx!=k->x) zx = z[kx = k->x].x;                 // reallocate
-        c_rmult(zxy, z[ky = k->y].y, zx);
+
+    for (int k = 0; k < kcount; k++) {
+      const int kx = kvec[k].x, ky = kvec[k].y, kz = kvec[k].z;
+      const double hx = hvec[k].x, hy = hvec[k].y, hz = hvec[k].z;
+
+      // see eik_dot_r() for the reuse of zx and zxy
+
+      if (ky != kyold) {
+        if (kx != kxold) { zx = z[kx].x; kxold = kx; }
+        c_rmult(zxy, z[ky].y, zx);
+        kyold = ky;
       }
-      c_crmult(zc, z[k->z].z, zxy);
-      if (func[0]) {                                        // 1/r
-        double im = *(ke++)*(zc.im*cek->re+cek->im*zc.re);
-        if (func[3]) cek_coul = cek;
-        ++cek;
-        mysum[0][0] += h->x*im; mysum[0][1] += h->y*im; mysum[0][2] += h->z*im;
+      c_crmult(zc, z[kz].z, zxy);
+
+      if (termflag[TERM_COUL]) {                        // 1/r
+        const double im = kenergy[ne++]*(zc.im*sfac_all[n].re+sfac_all[n].im*zc.re);
+        if (termflag[TERM_DIPOLE]) ncoul = n;
+        n++;
+        eksum[0][0] += hx*im; eksum[0][1] += hy*im; eksum[0][2] += hz*im;
       }
-      if (func[1]) {                                        // geometric 1/r^6
-        double im = *(ke++)*(zc.im*cek->re+cek->im*zc.re); ++cek;
-        mysum[1][0] += h->x*im; mysum[1][1] += h->y*im; mysum[1][2] += h->z*im;
+      if (termflag[TERM_DISP_GEOM]) {                   // geometric 1/r^6
+        const double im = kenergy[ne++]*(zc.im*sfac_all[n].re+sfac_all[n].im*zc.re);
+        n++;
+        eksum[1][0] += hx*im; eksum[1][1] += hy*im; eksum[1][2] += hz*im;
       }
-      if (func[2]) {                                        // arithmetic 1/r^6
-        double im, c = *(ke++);
-        for (i=2; i<9; ++i) {
-          im = c*(zc.im*cek->re+cek->im*zc.re); ++cek;
-          mysum[i][0] += h->x*im; mysum[i][1] += h->y*im; mysum[i][2] += h->z*im;
+      if (termflag[TERM_DISP_ARITH]) {                  // arithmetic 1/r^6
+        const double ck = kenergy[ne++];
+        for (int m = 2; m < 9; m++) {
+          const double im = ck*(zc.im*sfac_all[n].re+sfac_all[n].im*zc.re);
+          n++;
+          eksum[m][0] += hx*im; eksum[m][1] += hy*im; eksum[m][2] += hz*im;
         }
       }
-      if (func[3]) {                                        // dipole
-        double im = (*ke)*(zc.im*cek->re+
-            cek->im*zc.re)*(mui[0]*h->x+mui[1]*h->y+mui[2]*h->z);
-        double im2 = (*ke)*(zc.re*cek->re-
-            cek->im*zc.im);
-        mysum[9][0] += h->x*im; mysum[9][1] += h->y*im; mysum[9][2] += h->z*im;
-        t[0] += -mui[1]*h->z*im2 + mui[2]*h->y*im2;        // torque
-        t[1] += -mui[2]*h->x*im2 + mui[0]*h->z*im2;
-        t[2] += -mui[0]*h->y*im2 + mui[1]*h->x*im2;
-        if (func[0]) {                                      // charge-dipole
-          double qi = (*q)*c[0];
-          im = - (*ke)*(zc.re*cek_coul->re -
-              cek_coul->im*zc.im)*(mui[0]*h->x+mui[1]*h->y+mui[2]*h->z);
-          im += (*ke)*(zc.re*cek->re - cek->im*zc.im)*qi;
-          mysum[9][0] += h->x*im; mysum[9][1] += h->y*im; mysum[9][2] += h->z*im;
+      if (termflag[TERM_DIPOLE]) {                      // dipole
+        const double muk = mui[0]*hx+mui[1]*hy+mui[2]*hz;
+        double im = kenergy[ne]*(zc.im*sfac_all[n].re+sfac_all[n].im*zc.re)*muk;
+        double im2 = kenergy[ne]*(zc.re*sfac_all[n].re-sfac_all[n].im*zc.im);
+        eksum[9][0] += hx*im; eksum[9][1] += hy*im; eksum[9][2] += hz*im;
+        tq[i][0] += -mui[1]*hz*im2 + mui[2]*hy*im2;     // torque
+        tq[i][1] += -mui[2]*hx*im2 + mui[0]*hz*im2;
+        tq[i][2] += -mui[0]*hy*im2 + mui[1]*hx*im2;
+        if (termflag[TERM_COUL]) {                      // charge-dipole
+          const double qi = q[i]*c[TERM_COUL];
+          im = -kenergy[ne]*(zc.re*sfac_all[ncoul].re-sfac_all[ncoul].im*zc.im)*muk;
+          im += kenergy[ne]*(zc.re*sfac_all[n].re-sfac_all[n].im*zc.im)*qi;
+          eksum[9][0] += hx*im; eksum[9][1] += hy*im; eksum[9][2] += hz*im;
 
-          im2 =  (*ke)*(zc.re*cek_coul->im + cek_coul->re*zc.im);
-          im2 += -(*ke)*(zc.re*cek->im - cek->im*zc.re);
-          t[0] += -mui[1]*h->z*im2 + mui[2]*h->y*im2;        // torque
-          t[1] += -mui[2]*h->x*im2 + mui[0]*h->z*im2;
-          t[2] += -mui[0]*h->y*im2 + mui[1]*h->x*im2;
+          im2 = kenergy[ne]*(zc.re*sfac_all[ncoul].im+sfac_all[ncoul].re*zc.im);
+          im2 += -kenergy[ne]*(zc.re*sfac_all[n].im-sfac_all[n].im*zc.re);
+          tq[i][0] += -mui[1]*hz*im2 + mui[2]*hy*im2;   // torque
+          tq[i][1] += -mui[2]*hx*im2 + mui[0]*hz*im2;
+          tq[i][2] += -mui[0]*hy*im2 + mui[1]*hx*im2;
         }
-        ++cek;
-        ke++;
+        n++;
+        ne++;
       }
     }
-    if (func[0]) {                                        // 1/r
-      double qi = *(q++)*c[0];
-      f[0] -= mysum[0][0]*qi; f[1] -= mysum[0][1]*qi; f[2] -= mysum[0][2]*qi;
+
+    if (termflag[TERM_COUL]) {                          // 1/r
+      const double qi = q[i]*c[TERM_COUL];
+      f[i][0] -= eksum[0][0]*qi;
+      f[i][1] -= eksum[0][1]*qi;
+      f[i][2] -= eksum[0][2]*qi;
     }
-    if (func[1]) {                                        // geometric 1/r^6
-      double bi = B[*type]*c[1];
-      f[0] -= mysum[1][0]*bi; f[1] -= mysum[1][1]*bi; f[2] -= mysum[1][2]*bi;
+    if (termflag[TERM_DISP_GEOM]) {                     // geometric 1/r^6
+      const double bi = B[type[i]]*c[TERM_DISP_GEOM];
+      f[i][0] -= eksum[1][0]*bi;
+      f[i][1] -= eksum[1][1]*bi;
+      f[i][2] -= eksum[1][2]*bi;
     }
-    if (func[2]) {                                        // arithmetic 1/r^6
-      double *bi = B+7*type[0]+7;
-      for (i=2; i<9; ++i) {
-        double c2 = (--bi)[0]*c[2];
-        f[0] -= mysum[i][0]*c2; f[1] -= mysum[i][1]*c2; f[2] -= mysum[i][2]*c2;
+    if (termflag[TERM_DISP_ARITH]) {                    // arithmetic 1/r^6
+      const double *bi = &B[7*type[i]];
+      for (int m = 2; m < 9; m++) {
+        const double c2 = bi[8-m]*c[TERM_DISP_ARITH];
+        f[i][0] -= eksum[m][0]*c2;
+        f[i][1] -= eksum[m][1]*c2;
+        f[i][2] -= eksum[m][2]*c2;
       }
     }
-    if (func[3]) {                                        // dipole
-      f[0] -= mysum[9][0]; f[1] -= mysum[9][1]; f[2] -= mysum[9][2];
+    if (termflag[TERM_DIPOLE]) {                        // dipole
+      f[i][0] -= eksum[9][0];
+      f[i][1] -= eksum[9][1];
+      f[i][2] -= eksum[9][2];
     }
-    z = (cvector *) ((char *) z+lbytes);
-    ++type;
-    t += 3;
   }
 }
 
