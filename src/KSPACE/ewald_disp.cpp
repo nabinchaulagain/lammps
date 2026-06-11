@@ -1144,58 +1144,56 @@ void EwaldDisp::compute_virial()
   memset(virial, 0, 6*sizeof(double));
   if (!vflag_global) return;
 
-  complex *cek = sfac_all;
-  complex *cek_coul;
-  double *kv = kvirial;
   const double qscale = force->qqrd2e * scale;
-  double c[EwaldConst::EWALD_NTERMS] = {
+  const double c[EWALD_NTERMS] = {
     4.0*MY_PI*qscale/volume, 2.0*MY_PI*MY_PIS/(24.0*volume),
     2.0*MY_PI*MY_PIS/(192.0*volume), 4.0*MY_PI*mumurd2e/volume};
-  double mysum[EwaldConst::EWALD_NTERMS][6];
-  int func[EwaldConst::EWALD_NTERMS];
+  double vsum[EWALD_NTERMS][6];
+  int n = 0, nv = 0, ncoul = 0;
 
-  memcpy(func, termflag, EwaldConst::EWALD_NTERMS*sizeof(int));
-  memset(mysum, 0, EwaldConst::EWALD_NTERMS*6*sizeof(double));
-  for (int k=0; k<kcount; ++k) {                      // sum over k vectors
-    if (func[0]) {                                         // 1/r
-      double r = cek->re*cek->re+cek->im*cek->im;
-      if (func[3]) cek_coul = cek;
-      ++cek;
-      mysum[0][0] += *(kv++)*r; mysum[0][1] += *(kv++)*r; mysum[0][2] += *(kv++)*r;
-      mysum[0][3] += *(kv++)*r; mysum[0][4] += *(kv++)*r; mysum[0][5] += *(kv++)*r;
+  memset(vsum, 0, EWALD_NTERMS*6*sizeof(double));
+  for (int k = 0; k < kcount; k++) {                    // sum over k vectors
+    if (termflag[TERM_COUL]) {                          // 1/r
+      const double r = sfac_all[n].re*sfac_all[n].re+sfac_all[n].im*sfac_all[n].im;
+      if (termflag[TERM_DIPOLE]) ncoul = n;
+      n++;
+      for (int m = 0; m < 6; m++) vsum[TERM_COUL][m] += kvirial[nv+m]*r;
+      nv += 6;
     }
-    if (func[1]) {                                        // geometric 1/r^6
-      double r = cek->re*cek->re+cek->im*cek->im; ++cek;
-      mysum[1][0] += *(kv++)*r; mysum[1][1] += *(kv++)*r; mysum[1][2] += *(kv++)*r;
-      mysum[1][3] += *(kv++)*r; mysum[1][4] += *(kv++)*r; mysum[1][5] += *(kv++)*r;
+    if (termflag[TERM_DISP_GEOM]) {                     // geometric 1/r^6
+      const double r = sfac_all[n].re*sfac_all[n].re+sfac_all[n].im*sfac_all[n].im;
+      n++;
+      for (int m = 0; m < 6; m++) vsum[TERM_DISP_GEOM][m] += kvirial[nv+m]*r;
+      nv += 6;
     }
-    if (func[2]) {                                        // arithmetic 1/r^6
-      double r =
-            (cek[0].re*cek[6].re+cek[0].im*cek[6].im)+
-            (cek[1].re*cek[5].re+cek[1].im*cek[5].im)+
-            (cek[2].re*cek[4].re+cek[2].im*cek[4].im)+
-        0.5*(cek[3].re*cek[3].re+cek[3].im*cek[3].im); cek += 7;
-      mysum[2][0] += *(kv++)*r; mysum[2][1] += *(kv++)*r; mysum[2][2] += *(kv++)*r;
-      mysum[2][3] += *(kv++)*r; mysum[2][4] += *(kv++)*r; mysum[2][5] += *(kv++)*r;
+    if (termflag[TERM_DISP_ARITH]) {                    // arithmetic 1/r^6
+      const double r =
+            (sfac_all[n+0].re*sfac_all[n+6].re+sfac_all[n+0].im*sfac_all[n+6].im)+
+            (sfac_all[n+1].re*sfac_all[n+5].re+sfac_all[n+1].im*sfac_all[n+5].im)+
+            (sfac_all[n+2].re*sfac_all[n+4].re+sfac_all[n+2].im*sfac_all[n+4].im)+
+        0.5*(sfac_all[n+3].re*sfac_all[n+3].re+sfac_all[n+3].im*sfac_all[n+3].im);
+      n += 7;
+      for (int m = 0; m < 6; m++) vsum[TERM_DISP_ARITH][m] += kvirial[nv+m]*r;
+      nv += 6;
     }
-    if (func[3]) {
-      double r = cek->re*cek->re+cek->im*cek->im;
-      mysum[3][0] += *(kv++)*r; mysum[3][1] += *(kv++)*r; mysum[3][2] += *(kv++)*r;
-      mysum[3][3] += *(kv++)*r; mysum[3][4] += *(kv++)*r; mysum[3][5] += *(kv++)*r;
-      if (func[0]) {                                      // charge-dipole
-        kv -= 6;
-        double r = 2.0*(cek->re*cek_coul->im - cek->im*cek_coul->re);
-        mysum[3][0] += *(kv++)*r; mysum[3][1] += *(kv++)*r; mysum[3][2] += *(kv++)*r;
-        mysum[3][3] += *(kv++)*r; mysum[3][4] += *(kv++)*r; mysum[3][5] += *(kv++)*r;
+    if (termflag[TERM_DIPOLE]) {                        // dipole
+      const double r = sfac_all[n].re*sfac_all[n].re+sfac_all[n].im*sfac_all[n].im;
+      for (int m = 0; m < 6; m++) vsum[TERM_DIPOLE][m] += kvirial[nv+m]*r;
+      if (termflag[TERM_COUL]) {                        // charge-dipole
+        const double r2 =
+          2.0*(sfac_all[n].re*sfac_all[ncoul].im-sfac_all[n].im*sfac_all[ncoul].re);
+        for (int m = 0; m < 6; m++) vsum[TERM_DIPOLE][m] += kvirial[nv+m]*r2;
       }
-      ++cek;
+      nv += 6;
+      n++;
     }
   }
-  for (int k=0; k<EwaldConst::EWALD_NTERMS; ++k)
-    if (func[k]) {
-      double self[6] = {virial_self[k], virial_self[k], virial_self[k], 0, 0, 0};
-      shape_scalar_mult(mysum[k], c[k]);
-      shape_add(virial, mysum[k]);
+
+  for (int t = 0; t < EWALD_NTERMS; t++)
+    if (termflag[t]) {
+      double self[6] = {virial_self[t], virial_self[t], virial_self[t], 0, 0, 0};
+      shape_scalar_mult(vsum[t], c[t]);
+      shape_add(virial, vsum[t]);
       shape_subtr(virial, self);
     }
 }
