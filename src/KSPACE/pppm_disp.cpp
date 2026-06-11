@@ -8234,10 +8234,10 @@ double PPPMDisp::memory_usage()
     per = 6;
   }
   if (!evflag_atom) per = 0;
-  if (termflag[2]) mixing = 7;
-  if (termflag[3]) mixing = nsplit_alloc;
+  if (termflag[TERM_DISP_ARITH]) mixing = 7;
+  if (termflag[TERM_DISP_NONE]) mixing = nsplit_alloc;
 
-  if (termflag[0]) {
+  if (termflag[TERM_COUL]) {
     int nbrick = (nxhi_out-nxlo_out+1) * (nyhi_out-nylo_out+1) *
       (nzhi_out-nzlo_out+1);
     bytes += (double)(1 + diff +  per) * nbrick * sizeof(FFT_SCALAR);     //brick memory
@@ -8246,7 +8246,7 @@ double PPPMDisp::memory_usage()
     bytes += (double)nfft_both * 3 * sizeof(FFT_SCALAR);    // density_FFT, work1, work2
   }
 
-  if (termflag[1] + termflag[2] + termflag[3]) {
+  if (termflag[TERM_DISP_GEOM] + termflag[TERM_DISP_ARITH] + termflag[TERM_DISP_NONE]) {
     int nbrick = (nxhi_out_6-nxlo_out_6+1) * (nyhi_out_6-nylo_out_6+1) *
       (nzhi_out_6-nzlo_out_6+1);
     // density_brick + vd_brick + per atom bricks
