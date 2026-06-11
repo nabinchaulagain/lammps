@@ -171,13 +171,13 @@ void PPPMDispIntel::compute(int eflag, int vflag)
 
   if (atom->nmax > nmax) {
 
-    if (termflag[0]) memory->destroy(part2grid);
-    if (termflag[1] + termflag[2] + termflag[3]) memory->destroy(part2grid_6);
+    if (termflag[TERM_COUL]) memory->destroy(part2grid);
+    if (termflag[TERM_DISP_GEOM] + termflag[TERM_DISP_ARITH] + termflag[TERM_DISP_NONE]) memory->destroy(part2grid_6);
     if (differentiation_flag == 1) {
       memory->destroy(particle_ekx);
       memory->destroy(particle_eky);
       memory->destroy(particle_ekz);
-      if (termflag[2] == 1) {
+      if (termflag[TERM_DISP_ARITH] == 1) {
         memory->destroy(particle_ekx0);
         memory->destroy(particle_eky0);
         memory->destroy(particle_ekz0);
@@ -203,14 +203,14 @@ void PPPMDispIntel::compute(int eflag, int vflag)
 
     }
     nmax = atom->nmax;
-    if (termflag[0]) memory->create(part2grid,nmax,3,"pppm/disp:part2grid");
-    if (termflag[1] + termflag[2] + termflag[3])
+    if (termflag[TERM_COUL]) memory->create(part2grid,nmax,3,"pppm/disp:part2grid");
+    if (termflag[TERM_DISP_GEOM] + termflag[TERM_DISP_ARITH] + termflag[TERM_DISP_NONE])
       memory->create(part2grid_6,nmax,3,"pppm/disp:part2grid_6");
     if (differentiation_flag == 1) {
       memory->create(particle_ekx, nmax, "pppmdispintel:pekx");
       memory->create(particle_eky, nmax, "pppmdispintel:peky");
       memory->create(particle_ekz, nmax, "pppmdispintel:pekz");
-      if (termflag[2] == 1) {
+      if (termflag[TERM_DISP_ARITH] == 1) {
         memory->create(particle_ekx0, nmax, "pppmdispintel:pekx0");
         memory->create(particle_eky0, nmax, "pppmdispintel:peky0");
         memory->create(particle_ekz0, nmax, "pppmdispintel:pekz0");
@@ -247,7 +247,7 @@ void PPPMDispIntel::compute(int eflag, int vflag)
   // communication between processors
   // calculation of forces
 
-  if (termflag[0]) {
+  if (termflag[TERM_COUL]) {
 
     //perform calculations for coulomb interactions only
 
@@ -328,7 +328,7 @@ void PPPMDispIntel::compute(int eflag, int vflag)
     if (evflag_atom) fieldforce_c_peratom();
   }
 
-  if (termflag[1]) {
+  if (termflag[TERM_DISP_GEOM]) {
 
     //perform calculations for geometric mixing
 
@@ -414,7 +414,7 @@ void PPPMDispIntel::compute(int eflag, int vflag)
     if (evflag_atom) fieldforce_g_peratom();
   }
 
-  if (termflag[2]) {
+  if (termflag[TERM_DISP_ARITH]) {
     //perform calculations for arithmetic mixing
 
     if (fix->precision() == FixIntel::PREC_MODE_MIXED) {
@@ -528,7 +528,7 @@ void PPPMDispIntel::compute(int eflag, int vflag)
     if (evflag_atom) fieldforce_a_peratom();
   }
 
-  if (termflag[3]) {
+  if (termflag[TERM_DISP_NONE]) {
 
     // perform calculations if no mixing rule applies
 
@@ -654,7 +654,7 @@ void PPPMDispIntel::compute(int eflag, int vflag)
     for (i = 0; i < 6; i++) virial[i] = 0.5*qscale*volume*virial_all[i];
     MPI_Allreduce(virial_6,virial_all,6,MPI_DOUBLE,MPI_SUM,world);
     for (i = 0; i < 6; i++) virial[i] += 0.5*volume*virial_all[i];
-    if (termflag[1]+termflag[2]+termflag[3]) {
+    if (termflag[TERM_DISP_GEOM]+termflag[TERM_DISP_ARITH]+termflag[TERM_DISP_NONE]) {
       double a =  MY_PI*MY_PIS/(6*volume)*std::pow(g_ewald_6,3)*csumij;
       virial[0] -= a;
       virial[1] -= a;
@@ -663,14 +663,14 @@ void PPPMDispIntel::compute(int eflag, int vflag)
   }
 
   if (eflag_atom) {
-    if (termflag[0]) {
+    if (termflag[TERM_COUL]) {
       double *q = atom->q;
       for (i = 0; i < atom->nlocal; i++) {
         eatom[i] -= qscale*g_ewald*q[i]*q[i]/MY_PIS + qscale*MY_PI2*q[i]*
           qsum / (g_ewald*g_ewald*volume); //coulomb self energy correction
       }
     }
-    if (termflag[1] + termflag[2] + termflag[3]) {
+    if (termflag[TERM_DISP_GEOM] + termflag[TERM_DISP_ARITH] + termflag[TERM_DISP_NONE]) {
       int tmp;
       for (i = 0; i < atom->nlocal; i++) {
         tmp = atom->type[i];
@@ -681,7 +681,7 @@ void PPPMDispIntel::compute(int eflag, int vflag)
   }
 
   if (vflag_atom) {
-    if (termflag[1] + termflag[2] + termflag[3]) {
+    if (termflag[TERM_DISP_GEOM] + termflag[TERM_DISP_ARITH] + termflag[TERM_DISP_NONE]) {
       int tmp;
       for (i = 0; i < atom->nlocal; i++) {
         tmp = atom->type[i];
@@ -696,8 +696,8 @@ void PPPMDispIntel::compute(int eflag, int vflag)
   // 2d slab correction
 
   if (slabflag) slabcorr(eflag);
-  if (termflag[0]) energy += energy_1;
-  if (termflag[1] + termflag[2] + termflag[3]) energy += energy_6;
+  if (termflag[TERM_COUL]) energy += energy_1;
+  if (termflag[TERM_DISP_GEOM] + termflag[TERM_DISP_ARITH] + termflag[TERM_DISP_NONE]) energy += energy_6;
 
   // convert atoms back from lamda to box coords
 
