@@ -3351,7 +3351,7 @@ void PPPMDisp::calc_csum()
 
   // following variables distinguish between arithmetic and geometric mixing
 
-  if (termflag[1]) {
+  if (termflag[TERM_DISP_GEOM]) {
     for (i = 1; i <= ntypes; i++)
       cii[i] = B[i]*B[i];
     int tmp;
@@ -3361,7 +3361,7 @@ void PPPMDisp::calc_csum()
       csum += B[tmp]*B[tmp];
     }
   }
-  if (termflag[2]) {
+  if (termflag[TERM_DISP_ARITH]) {
     for (i = 1; i <= ntypes; i++)
       cii[i] = 64.0/20.0*B[7*i+3]*B[7*i+3];
     int tmp;
@@ -3371,7 +3371,7 @@ void PPPMDisp::calc_csum()
       csum += 64.0/20.0*B[7*tmp+3]*B[7*tmp+3];
     }
   }
-  if (termflag[3]) {
+  if (termflag[TERM_DISP_NONE]) {
     for (i = 1; i <= ntypes; i++)
       for (j = 0; j < nsplit; j++)
         cii[i] += B[j]*B[nsplit*i + j]*B[nsplit*i + j];
@@ -3396,7 +3396,7 @@ void PPPMDisp::calc_csum()
 
   double d1, d2;
 
-  if (termflag[1]) {
+  if (termflag[TERM_DISP_GEOM]) {
     for (i=1; i<=ntypes; i++) {
       for (j=1; j<=ntypes; j++) {
         csumi[i] += neach_all[j]*B[i]*B[j];
@@ -3408,7 +3408,7 @@ void PPPMDisp::calc_csum()
     }
   }
 
-  if (termflag[2]) {
+  if (termflag[TERM_DISP_ARITH]) {
     for (i=1; i<=ntypes; i++) {
       for (j=1; j<=ntypes; j++) {
         for (k=0; k<=6; k++) {
@@ -3422,7 +3422,7 @@ void PPPMDisp::calc_csum()
     }
   }
 
-  if (termflag[3]) {
+  if (termflag[TERM_DISP_NONE]) {
     for (i=1; i<=ntypes; i++) {
       for (j=1; j<=ntypes; j++) {
         for (k=0; k<nsplit; k++) {
