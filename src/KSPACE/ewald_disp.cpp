@@ -644,25 +644,31 @@ void EwaldDisp::init_self()
   double g1 = g_ewald, g2 = g1*g1, g3 = g1*g2;
   const double qscale = force->qqrd2e * scale;
 
-  memset(energy_self, 0, EwaldConst::EWALD_NTERMS*sizeof(double));        // self energy
-  memset(virial_self, 0, EwaldConst::EWALD_NTERMS*sizeof(double));
+  memset(energy_self, 0, EWALD_NTERMS*sizeof(double));  // self energy
+  memset(virial_self, 0, EWALD_NTERMS*sizeof(double));
 
-  if (termflag[0]) {                                        // 1/r
-    virial_self[0] = -0.5*MY_PI*qscale/(g2*volume)*qsum*qsum;
-    energy_self[0] = qsqsum*qscale*g1/MY_PIS-virial_self[0];
+  if (termflag[TERM_COUL]) {                            // 1/r
+    virial_self[TERM_COUL] = -0.5*MY_PI*qscale/(g2*volume)*qsum*qsum;
+    energy_self[TERM_COUL] = qsqsum*qscale*g1/MY_PIS-virial_self[TERM_COUL];
   }
-  if (termflag[1]) {                                        // geometric 1/r^6
-    virial_self[1] = MY_PI*MY_PIS*g3/(6.0*volume)*coeff_sum[1].x*coeff_sum[1].x;
-    energy_self[1] = -coeff_sum[1].x2*g3*g3/12.0+virial_self[1];
+  if (termflag[TERM_DISP_GEOM]) {                       // geometric 1/r^6
+    virial_self[TERM_DISP_GEOM] =
+      MY_PI*MY_PIS*g3/(6.0*volume)*coeff_sum[1].x*coeff_sum[1].x;
+    energy_self[TERM_DISP_GEOM] =
+      -coeff_sum[1].x2*g3*g3/12.0+virial_self[TERM_DISP_GEOM];
   }
-  if (termflag[2]) {                                        // arithmetic 1/r^6
-    virial_self[2] = MY_PI*MY_PIS*g3/(48.0*volume)*(coeff_sum[2].x*coeff_sum[8].x+
-        coeff_sum[3].x*coeff_sum[7].x+coeff_sum[4].x*coeff_sum[6].x+0.5*coeff_sum[5].x*coeff_sum[5].x);
-    energy_self[2] = -coeff_sum[2].x2*g3*g3/3.0+virial_self[2];
+  if (termflag[TERM_DISP_ARITH]) {                      // arithmetic 1/r^6
+    virial_self[TERM_DISP_ARITH] =
+      MY_PI*MY_PIS*g3/(48.0*volume)*(coeff_sum[2].x*coeff_sum[8].x+
+        coeff_sum[3].x*coeff_sum[7].x+coeff_sum[4].x*coeff_sum[6].x+
+        0.5*coeff_sum[5].x*coeff_sum[5].x);
+    energy_self[TERM_DISP_ARITH] =
+      -coeff_sum[2].x2*g3*g3/3.0+virial_self[TERM_DISP_ARITH];
   }
-  if (termflag[3]) {                                        // dipole
-    virial_self[3] = 0;                                        // in surface
-    energy_self[3] = coeff_sum[9].x2*mumurd2e*2.0*g3/3.0/MY_PIS-virial_self[3];
+  if (termflag[TERM_DIPOLE]) {                          // dipole
+    virial_self[TERM_DIPOLE] = 0;
+    energy_self[TERM_DIPOLE] =
+      coeff_sum[9].x2*mumurd2e*2.0*g3/3.0/MY_PIS-virial_self[TERM_DIPOLE];
   }
 }
 
