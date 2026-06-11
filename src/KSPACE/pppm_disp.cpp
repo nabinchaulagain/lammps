@@ -795,14 +795,14 @@ void PPPMDisp::reset_grid()
 
   // reset portion of global grid that each proc owns
 
-  if (termflag[0])
+  if (termflag[TERM_COUL])
     set_grid_local(order,nx_pppm,ny_pppm,nz_pppm,
                    shift,shiftone,shiftatom_lo,shiftatom_hi,
                    nlower,nupper,
                    nxlo_fft,nylo_fft,nzlo_fft,
                    nxhi_fft,nyhi_fft,nzhi_fft);
 
-  if (termflag[1] + termflag[2] + termflag[3])
+  if (termflag[TERM_DISP_GEOM] + termflag[TERM_DISP_ARITH] + termflag[TERM_DISP_NONE])
     set_grid_local(order_6,nx_pppm_6,ny_pppm_6,nz_pppm_6,
                    shift_6,shiftone_6,shiftatom_lo_6,shiftatom_hi_6,
                    nlower_6,nupper_6,
@@ -815,11 +815,11 @@ void PPPMDisp::reset_grid()
 
   allocate();
 
-  if (termflag[0]) {
+  if (termflag[TERM_COUL]) {
     if (!overlap_allowed && !gc->ghost_adjacent())
       error->all(FLERR,"PPPMDisp grid stencil extends beyond nearest neighbor processor");
   }
-  if (termflag[1] + termflag[2] + termflag[3]) {
+  if (termflag[TERM_DISP_GEOM] + termflag[TERM_DISP_ARITH] + termflag[TERM_DISP_NONE]) {
     if (!overlap_allowed && !gc6->ghost_adjacent())
       error->all(FLERR,"Dispersion PPPMDisp grid stencil extends beyond nearest neighbor proc");
   }
@@ -827,7 +827,7 @@ void PPPMDisp::reset_grid()
   // pre-compute Green's function denomiator expansion
   // pre-compute 1d charge distribution coefficients
 
-  if (termflag[0]) {
+  if (termflag[TERM_COUL]) {
     compute_gf_denom(gf_b,order);
     compute_rho_coeff(rho_coeff,drho_coeff,order);
     if (differentiation_flag == 1)
@@ -837,7 +837,7 @@ void PPPMDisp::reset_grid()
                           sf_precoeff1,sf_precoeff2,sf_precoeff3,
                           sf_precoeff4,sf_precoeff5,sf_precoeff6);
   }
-  if (termflag[1] + termflag[2] + termflag[3]) {
+  if (termflag[TERM_DISP_GEOM] + termflag[TERM_DISP_ARITH] + termflag[TERM_DISP_NONE]) {
     compute_gf_denom(gf_b_6,order_6);
     compute_rho_coeff(rho_coeff_6,drho_coeff_6,order_6);
     if (differentiation_flag == 1)
