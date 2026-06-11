@@ -1516,7 +1516,7 @@ double EwaldDisp::f(double x, double Rc, bigint natoms, double vol, double b2)
   double a = Rc*x;
   double f = 0.0;
 
-  if (termflag[3]) { // dipole
+  if (termflag[TERM_DIPOLE]) {                          // dipole
     double rg2 = a*a;
     double rg4 = rg2*rg2;
     double rg6 = rg4*rg2;
@@ -1525,7 +1525,7 @@ double EwaldDisp::f(double x, double Rc, bigint natoms, double vol, double b2)
     f = (b2/(sqrt(vol*powint(x,4)*powint(Rc,9)*natoms)) *
       sqrt(13.0/6.0*Cc*Cc + 2.0/15.0*Dc*Dc - 13.0/15.0*Cc*Dc) *
       exp(-rg2)) - accuracy;
-  } else if (termflag[1] || termflag[2]) { // LJ
+  } else if (termflag[TERM_DISP_GEOM] || termflag[TERM_DISP_ARITH]) {  // LJ
     f = (4.0*MY_PI*b2*powint(x,4)/vol/sqrt((double)natoms)*erfc(a) *
       (6.0*powint(a,-5) + 6.0*powint(a,-3) + 3.0/a + a) - accuracy);
   }
