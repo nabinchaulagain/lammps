@@ -999,44 +999,47 @@ void EwaldDisp::compute_energy()
   energy = 0.0;
   if (!eflag_global) return;
 
-  complex *cek = sfac_all;
-  complex *cek_coul;
-  double *ke = kenergy;
   const double qscale = force->qqrd2e * scale;
-  double c[EwaldConst::EWALD_NTERMS] = {
+  const double c[EWALD_NTERMS] = {
     4.0*MY_PI*qscale/volume, 2.0*MY_PI*MY_PIS/(24.0*volume),
     2.0*MY_PI*MY_PIS/(192.0*volume), 4.0*MY_PI*mumurd2e/volume};
-  double mysum[EwaldConst::EWALD_NTERMS];
-  int func[EwaldConst::EWALD_NTERMS];
+  double esum[EWALD_NTERMS];
+  int n = 0, ne = 0, ncoul = 0;
 
-  memcpy(func, termflag, EwaldConst::EWALD_NTERMS*sizeof(int));
-  memset(mysum, 0, EwaldConst::EWALD_NTERMS*sizeof(double));                // reset sums
-  for (int k=0; k<kcount; ++k) {                       // sum over k vectors
-    if (func[0]) {                                        // 1/r
-      mysum[0] += *(ke++)*(cek->re*cek->re+cek->im*cek->im);
-      if (func[3]) cek_coul = cek;
-      ++cek;
+  memset(esum, 0, EWALD_NTERMS*sizeof(double));         // reset sums
+  for (int k = 0; k < kcount; k++) {                    // sum over k vectors
+    if (termflag[TERM_COUL]) {                          // 1/r
+      esum[TERM_COUL] +=
+        kenergy[ne++]*(sfac_all[n].re*sfac_all[n].re+sfac_all[n].im*sfac_all[n].im);
+      if (termflag[TERM_DIPOLE]) ncoul = n;
+      n++;
     }
-    if (func[1]) {                                        // geometric 1/r^6
-      mysum[1] += *(ke++)*(cek->re*cek->re+cek->im*cek->im); ++cek; }
-    if (func[2]) {                                        // arithmetic 1/r^6
-      double r =
-            (cek[0].re*cek[6].re+cek[0].im*cek[6].im)+
-            (cek[1].re*cek[5].re+cek[1].im*cek[5].im)+
-            (cek[2].re*cek[4].re+cek[2].im*cek[4].im)+
-        0.5*(cek[3].re*cek[3].re+cek[3].im*cek[3].im); cek += 7;
-      mysum[2] += *(ke++)*r;
+    if (termflag[TERM_DISP_GEOM]) {                     // geometric 1/r^6
+      esum[TERM_DISP_GEOM] +=
+        kenergy[ne++]*(sfac_all[n].re*sfac_all[n].re+sfac_all[n].im*sfac_all[n].im);
+      n++;
     }
-    if (func[3]) {                                        // dipole
-      mysum[3] += (*ke)*(cek->re*cek->re+cek->im*cek->im);
-      if (func[0]) {                                      // charge-dipole
-        mysum[3] += (*ke)*2.0*(cek->re*cek_coul->im - cek->im*cek_coul->re);
+    if (termflag[TERM_DISP_ARITH]) {                    // arithmetic 1/r^6
+      const double r =
+            (sfac_all[n+0].re*sfac_all[n+6].re+sfac_all[n+0].im*sfac_all[n+6].im)+
+            (sfac_all[n+1].re*sfac_all[n+5].re+sfac_all[n+1].im*sfac_all[n+5].im)+
+            (sfac_all[n+2].re*sfac_all[n+4].re+sfac_all[n+2].im*sfac_all[n+4].im)+
+        0.5*(sfac_all[n+3].re*sfac_all[n+3].re+sfac_all[n+3].im*sfac_all[n+3].im);
+      n += 7;
+      esum[TERM_DISP_ARITH] += kenergy[ne++]*r;
+    }
+    if (termflag[TERM_DIPOLE]) {                        // dipole
+      esum[TERM_DIPOLE] +=
+        kenergy[ne]*(sfac_all[n].re*sfac_all[n].re+sfac_all[n].im*sfac_all[n].im);
+      if (termflag[TERM_COUL]) {                        // charge-dipole
+        esum[TERM_DIPOLE] += kenergy[ne]*2.0*
+          (sfac_all[n].re*sfac_all[ncoul].im-sfac_all[n].im*sfac_all[ncoul].re);
       }
-      ke++;
-      ++cek;
+      ne++;
+      n++;
     }
   }
-  for (int k=0; k<EwaldConst::EWALD_NTERMS; ++k) energy += c[k]*mysum[k]-energy_self[k];
+  for (int t = 0; t < EWALD_NTERMS; t++) energy += c[t]*esum[t]-energy_self[t];
 }
 
 /* ---------------------------------------------------------------------- */
