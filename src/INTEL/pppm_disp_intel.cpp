@@ -3118,7 +3118,7 @@ void PPPMDispIntel::precompute_rho()
   half_rho_scale = (rho_points - 1.)/2.;
   half_rho_scale_plus = half_rho_scale + 0.5;
 
-  if (termflag[0]) {
+  if (termflag[TERM_COUL]) {
     for (int i = 0; i < rho_points; i++) {
       FFT_SCALAR dx = -1. + 1./half_rho_scale * (FFT_SCALAR)i;
       #if defined(LMP_SIMD_COMPILER)
@@ -3160,7 +3160,7 @@ void PPPMDispIntel::precompute_rho()
     }
   }
 
-  if (termflag[1]+termflag[2]+termflag[3]) {
+  if (termflag[TERM_DISP_GEOM]+termflag[TERM_DISP_ARITH]+termflag[TERM_DISP_NONE]) {
     for (int i = 0; i < rho_points; i++) {
       FFT_SCALAR dx = -1. + 1./half_rho_scale * (FFT_SCALAR)i;
       #if defined(LMP_SIMD_COMPILER)
