@@ -303,7 +303,7 @@ void PPPMDisp::init()
 
   int ewald_order = ptr ? *((int *) ptr) : 1<<1;
   int ewald_mix = ptr ? *((int *) pair->extract("ewald_mix",tmp)) : Pair::GEOMETRIC;
-  memset(termflag,0,EwaldConst::EWALD_NTERMS*sizeof(int));
+  memset(termflag,0,EWALD_NTERMS*sizeof(int));
   for (int i=0; i<=EWALD_MAXORDER; ++i)                 // transcribe order
     if (ewald_order&(1<<i)) {                           // from pair_style
       int  k=0;
@@ -324,14 +324,14 @@ void PPPMDisp::init()
       termflag[k] = 1;
     }
 
-  // warn, if function[0] is not set but charge attribute is set!
+  // warn, if termflag[TERM_COUL] is not set but charge attribute is set!
 
-  if (!termflag[0] && atom->q_flag && me == 0)
+  if (!termflag[TERM_COUL] && atom->q_flag && me == 0)
     error->warning(FLERR, "Charges are set, but coulombic solver is not used");
 
   // show error message if pppm/disp is not used correctly
 
-  if (termflag[1] || termflag[2] || termflag[3]) {
+  if (termflag[TERM_DISP_GEOM] || termflag[TERM_DISP_ARITH] || termflag[TERM_DISP_NONE]) {
     if (!gridflag_6 && !gewaldflag_6 && accuracy_real_6 < 0
         && accuracy_kspace_6 < 0 && !auto_disp_flag) {
       error->all(FLERR, "PPPMDisp used but no parameters set, "
@@ -340,13 +340,13 @@ void PPPMDisp::init()
     }
   }
 
-  // compute qsum & qsqsum, if function[0] is set, warn if not charge-neutral
+  // compute qsum & qsqsum, if termflag[TERM_COUL] is set, warn if not charge-neutral
 
   scale = 1.0;
   qqrd2e = force->qqrd2e;
   natoms_original = atom->natoms;
 
-  if (termflag[0]) qsum_qsq();
+  if (termflag[TERM_COUL]) qsum_qsq();
 
   // if kspace is TIP4P, extract TIP4P params from pair style
   // bond/angle are not yet init(), so ensure equilibrium request is valid
@@ -403,7 +403,7 @@ void PPPMDisp::init()
   double acc_6,acc_real_6,acc_kspace_6;
 
   int iteration = 0;
-  if (termflag[0]) {
+  if (termflag[TERM_COUL]) {
 
     gc = nullptr;
     while (order >= minorder) {
@@ -461,7 +461,7 @@ void PPPMDisp::init()
   }
 
   iteration = 0;
-  if (termflag[1] + termflag[2] + termflag[3]) {
+  if (termflag[TERM_DISP_GEOM] + termflag[TERM_DISP_ARITH] + termflag[TERM_DISP_NONE]) {
 
     gc6 = nullptr;
     while (order_6 >= minorder) {
@@ -524,7 +524,7 @@ void PPPMDisp::init()
   // pre-compute Green's function denomiator expansion
   // pre-compute 1d charge distribution coefficients
 
-  if (termflag[0]) {
+  if (termflag[TERM_COUL]) {
     compute_gf_denom(gf_b,order);
     compute_rho_coeff(rho_coeff,drho_coeff,order);
     if (differentiation_flag == 1)
@@ -534,7 +534,7 @@ void PPPMDisp::init()
                           sf_precoeff1,sf_precoeff2,sf_precoeff3,
                           sf_precoeff4,sf_precoeff5,sf_precoeff6);
   }
-  if (termflag[1] + termflag[2] + termflag[3]) {
+  if (termflag[TERM_DISP_GEOM] + termflag[TERM_DISP_ARITH] + termflag[TERM_DISP_NONE]) {
     compute_gf_denom(gf_b_6,order_6);
     compute_rho_coeff(rho_coeff_6,drho_coeff_6,order_6);
     if (differentiation_flag == 1)
@@ -547,7 +547,7 @@ void PPPMDisp::init()
 
   // print Coulomb stats
 
-  if (termflag[0]) {
+  if (termflag[TERM_COUL]) {
     int ngrid_max,nfft_both_max;
     MPI_Allreduce(&ngrid,&ngrid_max,1,MPI_INT,MPI_MAX,world);
     MPI_Allreduce(&nfft_both,&nfft_both_max,1,MPI_INT,MPI_MAX,world);
@@ -571,7 +571,7 @@ void PPPMDisp::init()
 
   // print dipserion stats
 
-  if (termflag[1] + termflag[2] + termflag[3]) {
+  if (termflag[TERM_DISP_GEOM] + termflag[TERM_DISP_ARITH] + termflag[TERM_DISP_NONE]) {
     int ngrid_6_max,nfft_both_6_max;
     MPI_Allreduce(&ngrid_6,&ngrid_6_max,1,MPI_INT,MPI_MAX,world);
     MPI_Allreduce(&nfft_both_6,&nfft_both_6_max,1,MPI_INT,MPI_MAX,world);
