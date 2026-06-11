@@ -1270,8 +1270,8 @@ void PPPMDisp::init_coeffs()
 
   // no mixing rule or arithmetic
 
-  if (termflag[3] + termflag[2]) {
-    if (termflag[2] && me == 0)
+  if (termflag[TERM_DISP_NONE] + termflag[TERM_DISP_ARITH]) {
+    if (termflag[TERM_DISP_ARITH] && me == 0)
       utils::logmesg(lmp,"  Optimizing splitting of Dispersion coefficients\n");
 
     // allocate data for eigenvalue decomposition
@@ -1294,7 +1294,7 @@ void PPPMDisp::init_coeffs()
         Q[i][i] = 1.0;
       // perform eigenvalue decomposition with QR algorithm
       converged = qr_alg(A,Q,n);
-      if (termflag[3] && !converged) {
+      if (termflag[TERM_DISP_NONE] && !converged) {
         error->all(FLERR,
                    "Matrix factorization to split dispersion coefficients failed");
       }
@@ -1354,34 +1354,34 @@ void PPPMDisp::init_coeffs()
 
     } else nsplit = 1;      // use geometric mixing
 
-    // check if the function should preferably be [1] or [2] or [3]
+    // check which dispersion term should preferably be used
 
     if (nsplit == 1) {
       delete[] B;
       B = nullptr;
-      termflag[3] = 0;
-      termflag[2] = 0;
-      termflag[1] = 1;
+      termflag[TERM_DISP_NONE] = 0;
+      termflag[TERM_DISP_ARITH] = 0;
+      termflag[TERM_DISP_GEOM] = 1;
       if (me == 0)
         utils::logmesg(lmp,"  Using geometric mixing for reciprocal space\n");
     }
 
-    if (termflag[2] && nsplit <= 6) {
+    if (termflag[TERM_DISP_ARITH] && nsplit <= 6) {
       if (me == 0)
         utils::logmesg(lmp,"  Using {} instead of 7 structure factors\n",nsplit);
-      //function[3] = 1;
-      //function[2] = 0;
+      //termflag[TERM_DISP_NONE] = 1;
+      //termflag[TERM_DISP_ARITH] = 0;
       delete[] B;   // remove this when un-comment previous 2 lines
       B = nullptr;
    }
 
-    if (termflag[2] && (nsplit > 6)) {
+    if (termflag[TERM_DISP_ARITH] && (nsplit > 6)) {
       if (me == 0) utils::logmesg(lmp,"  Using 7 structure factors\n");
       delete[] B;
       B = nullptr;
     }
 
-    if (termflag[3]) {
+    if (termflag[TERM_DISP_NONE]) {
       if (me == 0)
         utils::logmesg(lmp,"  Using {} structure factors\n",nsplit);
       if (nsplit > 9)
@@ -1393,14 +1393,14 @@ void PPPMDisp::init_coeffs()
     memory->destroy(Q);
   }
 
-  if (termflag[1]) {                                    // geometric 1/r^6
+  if (termflag[TERM_DISP_GEOM]) {                                    // geometric 1/r^6
     auto *b = (double **) force->pair->extract("B",tmp);
     B = new double[n+1];
     B[0] = 0.0;
     for (int i=1; i<=n; ++i) B[i] = sqrt(fabs(b[i][i]));
   }
 
-  if (termflag[2]) {                                    // arithmetic 1/r^6
+  if (termflag[TERM_DISP_ARITH]) {                                    // arithmetic 1/r^6
     auto *epsilon = (double **) force->pair->extract("epsilon",tmp);
     auto *sigma = (double **) force->pair->extract("sigma",tmp);
     if (!(epsilon&&sigma))
