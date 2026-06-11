@@ -1674,7 +1674,7 @@ void _noopt PPPMDisp::allocate()
   // Coulomb grids
   // --------------------------------------
 
-  if (termflag[0]) {
+  if (termflag[TERM_COUL]) {
 
     // create ghost grid object for rho and electric field communication
     // returns local owned and ghost grid bounds
@@ -1789,7 +1789,7 @@ void _noopt PPPMDisp::allocate()
   // allocations common to all dispersion options
   // --------------------------------------
 
-  if (termflag[1] + termflag[2] + termflag[3]) {
+  if (termflag[TERM_DISP_GEOM] + termflag[TERM_DISP_ARITH] + termflag[TERM_DISP_NONE]) {
 
     // create ghost grid object for dispersion communication
     // returns local owned and ghost grid bounds
@@ -1806,13 +1806,13 @@ void _noopt PPPMDisp::allocate()
 
     gc6->setup_comm(ngc6_buf1,ngc6_buf2);
 
-    if (termflag[1]) {
+    if (termflag[TERM_DISP_GEOM]) {
       if (differentiation_flag) npergrid6 = 1;
       else npergrid6 = 3;
-    } else if (termflag[2]) {
+    } else if (termflag[TERM_DISP_ARITH]) {
       if (differentiation_flag) npergrid6 = 7;
       else npergrid6 = 21;
-    } else if (termflag[3]) {
+    } else if (termflag[TERM_DISP_NONE]) {
       if (differentiation_flag) npergrid6 = 1*nsplit_alloc;
       else npergrid6 = 3*nsplit_alloc;
     }
@@ -1868,7 +1868,7 @@ void _noopt PPPMDisp::allocate()
   // dispersion grids with geometric mixing
   // --------------------------------------
 
-  if (termflag[1]) {
+  if (termflag[TERM_DISP_GEOM]) {
     memory->create(work1_6,2*nfft_both_6,"pppm/disp:work1_6");
     memory->create(work2_6,2*nfft_both_6,"pppm/disp:work2_6");
 
@@ -1921,7 +1921,7 @@ void _noopt PPPMDisp::allocate()
   // dispersion grids with arithmetic mixing
   // --------------------------------------
 
-  if (termflag[2]) {
+  if (termflag[TERM_DISP_ARITH]) {
     memory->create(work1_6,2*nfft_both_6,"pppm/disp:work1_6");
     memory->create(work2_6,2*nfft_both_6,"pppm/disp:work2_6");
 
@@ -2055,7 +2055,7 @@ void _noopt PPPMDisp::allocate()
   // dispersion grids with no mixing
   // --------------------------------------
 
-  if (termflag[3]) {
+  if (termflag[TERM_DISP_NONE]) {
     memory->create(work1_6,2*nfft_both_6,"pppm/disp:work1_6");
     memory->create(work2_6,2*nfft_both_6,"pppm/disp:work2_6");
 
