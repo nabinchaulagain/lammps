@@ -107,27 +107,8 @@ PairEAM::~PairEAM()
     funcfl = nullptr;
   }
 
-  if (setfl) {
-    for (int i = 0; i < setfl->nelements; i++) delete [] setfl->elements[i];
-    delete [] setfl->elements;
-    memory->destroy(setfl->mass);
-    memory->destroy(setfl->frho);
-    memory->destroy(setfl->rhor);
-    memory->destroy(setfl->z2r);
-    delete setfl;
-    setfl = nullptr;
-  }
-
-  if (fs) {
-    for (int i = 0; i < fs->nelements; i++) delete [] fs->elements[i];
-    delete [] fs->elements;
-    memory->destroy(fs->mass);
-    memory->destroy(fs->frho);
-    memory->destroy(fs->rhor);
-    memory->destroy(fs->z2r);
-    delete fs;
-    fs = nullptr;
-  }
+  delete_setfl();
+  delete_fs();
 
   memory->destroy(frho);
   memory->destroy(rhor);
