@@ -8116,17 +8116,17 @@ int PPPMDisp::timing_1d(int n, double &time1d)
 {
   double time1,time2;
   int mixing = 1;
-  if (termflag[2]) mixing = 4;
-  if (termflag[3]) mixing = nsplit_alloc/2;
+  if (termflag[TERM_DISP_ARITH]) mixing = 4;
+  if (termflag[TERM_DISP_NONE]) mixing = nsplit_alloc/2;
 
-  if (termflag[0]) for (int i = 0; i < 2*nfft_both; i++) work1[i] = ZEROF;
-  if (termflag[1] + termflag[2] + termflag[3])
+  if (termflag[TERM_COUL]) for (int i = 0; i < 2*nfft_both; i++) work1[i] = ZEROF;
+  if (termflag[TERM_DISP_GEOM] + termflag[TERM_DISP_ARITH] + termflag[TERM_DISP_NONE])
     for (int i = 0; i < 2*nfft_both_6; i++) work1_6[i] = ZEROF;
 
   MPI_Barrier(world);
   time1 = platform::walltime();
 
-  if (termflag[0]) {
+  if (termflag[TERM_COUL]) {
     for (int i = 0; i < n; i++) {
       fft1->timing1d(work1,nfft_both,FFT3d::FORWARD);
       fft2->timing1d(work1,nfft_both,FFT3d::BACKWARD);
@@ -8144,7 +8144,7 @@ int PPPMDisp::timing_1d(int n, double &time1d)
   MPI_Barrier(world);
   time1 = platform::walltime();
 
-  if (termflag[1] + termflag[2] + termflag[3]) {
+  if (termflag[TERM_DISP_GEOM] + termflag[TERM_DISP_ARITH] + termflag[TERM_DISP_NONE]) {
     for (int i = 0; i < n; i++) {
       fft1_6->timing1d(work1_6,nfft_both_6,FFT3d::FORWARD);
       fft2_6->timing1d(work1_6,nfft_both_6,FFT3d::BACKWARD);
