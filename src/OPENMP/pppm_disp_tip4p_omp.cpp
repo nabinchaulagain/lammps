@@ -65,11 +65,11 @@ PPPMDispTIP4POMP::~PPPMDispTIP4POMP()
 #else
     const int tid = 0;
 #endif
-    if (termflag[0]) {
+    if (termflag[TERM_COUL]) {
       ThrData * thr = fix->get_thr(tid);
       thr->init_pppm(-order,memory);
     }
-    if (termflag[1] + termflag[2]) {
+    if (termflag[TERM_DISP_GEOM] + termflag[TERM_DISP_ARITH]) {
       ThrData * thr = fix->get_thr(tid);
       thr->init_pppm_disp(-order_6,memory);
     }
