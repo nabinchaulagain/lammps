@@ -631,7 +631,7 @@ void PPPMDisp::setup()
 
   //compute the virial coefficients and green functions
 
-  if (termflag[0]) {
+  if (termflag[TERM_COUL]) {
 
     delxinv = nx_pppm/xprd;
     delyinv = ny_pppm/yprd;
@@ -703,7 +703,7 @@ void PPPMDisp::setup()
     if (differentiation_flag == 1) compute_sf_coeff();
   }
 
-  if (termflag[1] + termflag[2] + termflag[3]) {
+  if (termflag[TERM_DISP_GEOM] + termflag[TERM_DISP_ARITH] + termflag[TERM_DISP_NONE]) {
     delxinv_6 = nx_pppm_6/xprd;
     delyinv_6 = ny_pppm_6/yprd;
     delzinv_6 = nz_pppm_6/zprd_slab;
