@@ -1202,94 +1202,77 @@ void EwaldDisp::compute_virial()
 
 void EwaldDisp::compute_virial_dipole()
 {
-  if (!termflag[3]) return;
+  if (!termflag[TERM_DIPOLE]) return;
   if (!vflag_atom && !vflag_global) return;
-  kvector *k;
-  hvector *h, *nh;
-  cvector *z = ekr;
-  double mui[3] = {0.0,0.0,0.0};
-  double mysum[6];
-  double sum_total[6];
-  complex *cek, zc, zx = {0, 0}, zxy = {0, 0};
-  complex *cek_coul;
-  double *mu = atom->mu ? atom->mu[0] : nullptr;
-  double *vatomj = nullptr;
-  if (vflag_atom && vatom) vatomj = vatom[0];
+
+  const int nz = 2*kmax+1;
+  const int nlocal = atom->nlocal;
+  double **mu = atom->mu;
   const double qscale = force->qqrd2e * scale;
-  double *ke, c[EwaldConst::EWALD_NTERMS] = {
+  const double c[EWALD_NTERMS] = {
     8.0*MY_PI*qscale/volume, 2.0*MY_PI*MY_PIS/(12.0*volume),
     2.0*MY_PI*MY_PIS/(192.0*volume), 8.0*MY_PI*mumurd2e/volume};
-  int i, kx, ky, lbytes = (2*kmax+1)*sizeof(cvector);
-  int func[EwaldConst::EWALD_NTERMS];
+  double vsum[6], vsum_total[6];
+  double mui[3];
 
-  memcpy(func, termflag, EwaldConst::EWALD_NTERMS*sizeof(int));
-  memset(&mysum[0], 0, 6*sizeof(double));
-  memset(&sum_total[0], 0, 6*sizeof(double));
-  for (int j = 0; j < atom->nlocal; j++) {
-    k = kvec;
-    kx = ky = -1;
-    ke = kenergy;
-    cek = sfac_all;
-    memset(&mysum[0], 0, 6*sizeof(double));
-    if (func[3]) {
-      double di = c[3];
-      mui[0] = di*(mu++)[0]; mui[1] = di*(mu++)[0]; mui[2] = di*(mu++)[0];
-      mu++;
-    }
-    for (nh = (h = hvec)+kcount; h<nh; ++h, ++k) {
-      if (ky!=k->y) {                                   // based on order in
-        if (kx!=k->x) zx = z[kx = k->x].x;                 // reallocate
-        c_rmult(zxy, z[ky = k->y].y, zx);
+  // offsets of the dipole channel within the per-k-vector blocks of
+  // sfac_all (nsums channels) and kenergy (nterms entries); the coulomb
+  // channel, when enabled, is always the first one
+
+  const int ndip = termflag[TERM_COUL]+termflag[TERM_DISP_GEOM]+7*termflag[TERM_DISP_ARITH];
+  const int nedip = termflag[TERM_COUL]+termflag[TERM_DISP_GEOM]+termflag[TERM_DISP_ARITH];
+
+  memset(vsum_total, 0, 6*sizeof(double));
+  for (int i = 0; i < nlocal; i++) {
+    const cvector *z = &ekr[i*nz];
+    int kxold = -1, kyold = -1;
+    complex zx = {0, 0}, zxy = {0, 0}, zc;
+
+    memset(vsum, 0, 6*sizeof(double));
+    mui[0] = c[TERM_DIPOLE]*mu[i][0];
+    mui[1] = c[TERM_DIPOLE]*mu[i][1];
+    mui[2] = c[TERM_DIPOLE]*mu[i][2];
+
+    for (int k = 0; k < kcount; k++) {
+      const int kx = kvec[k].x, ky = kvec[k].y, kz = kvec[k].z;
+
+      // see eik_dot_r() for the reuse of zx and zxy
+
+      if (ky != kyold) {
+        if (kx != kxold) { zx = z[kx].x; kxold = kx; }
+        c_rmult(zxy, z[ky].y, zx);
+        kyold = ky;
       }
-      c_crmult(zc, z[k->z].z, zxy);
-      double im = 0.0;
-      if (func[0]) {                                        // 1/r
-        ke++;
-        if (func[3]) cek_coul = cek;
-        ++cek;
+      c_crmult(zc, z[kz].z, zxy);
+
+      const complex &sd = sfac_all[k*nsums+ndip];
+      const double ke = kenergy[k*nterms+nedip];
+      double im = ke*(zc.re*sd.re - sd.im*zc.im);
+      if (termflag[TERM_COUL]) {                        // charge-dipole
+        const complex &sc = sfac_all[k*nsums];
+        im += ke*(zc.im*sc.re + sc.im*zc.re);
       }
-      if (func[1]) {                                        // geometric 1/r^6
-        ke++;
-        ++cek;
-      }
-      if (func[2]) {                                        // arithmetic 1/r^6
-        ke++;
-        for (i=2; i<9; ++i) {
-          ++cek;
-        }
-      }
-      if (func[3]) {                                        // dipole
-        im = (*ke)*(zc.re*cek->re - cek->im*zc.im);
-        if (func[0]) {                                      // charge-dipole
-          im += (*ke)*(zc.im*cek_coul->re + cek_coul->im*zc.re);
-        }
-        mysum[0] -= mui[0]*h->x*im;
-        mysum[1] -= mui[1]*h->y*im;
-        mysum[2] -= mui[2]*h->z*im;
-        mysum[3] -= mui[0]*h->y*im;
-        mysum[4] -= mui[0]*h->z*im;
-        mysum[5] -= mui[1]*h->z*im;
-        ++cek;
-        ke++;
-      }
+      vsum[0] -= mui[0]*hvec[k].x*im;
+      vsum[1] -= mui[1]*hvec[k].y*im;
+      vsum[2] -= mui[2]*hvec[k].z*im;
+      vsum[3] -= mui[0]*hvec[k].y*im;
+      vsum[4] -= mui[0]*hvec[k].z*im;
+      vsum[5] -= mui[1]*hvec[k].z*im;
     }
 
     if (vflag_global)
-      for (int n = 0; n < 6; n++)
-        sum_total[n] -= mysum[n];
+      for (int m = 0; m < 6; m++)
+        vsum_total[m] -= vsum[m];
 
     if (vflag_atom)
-      for (int n = 0; n < 6; n++)
-        vatomj[n] -= mysum[n];
-
-    z = (cvector *) ((char *) z+lbytes);
-    if (vflag_atom) vatomj += 6;
+      for (int m = 0; m < 6; m++)
+        vatom[i][m] -= vsum[m];
   }
 
   if (vflag_global) {
-    MPI_Allreduce(&sum_total[0],&mysum[0],6,MPI_DOUBLE,MPI_SUM,world);
-    for (int n = 0; n < 6; n++)
-      virial[n] += mysum[n];
+    MPI_Allreduce(vsum_total,vsum,6,MPI_DOUBLE,MPI_SUM,world);
+    for (int m = 0; m < 6; m++)
+      virial[m] += vsum[m];
   }
 }
 
