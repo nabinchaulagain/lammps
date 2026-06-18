@@ -904,12 +904,8 @@ double BondBPMPeri::single(int type, double rsq, int i, int j, double &fforce)
   if (fabs(dr) < NEAR_ZERO) dr = 0.0;
   double stretch = (r0 > 0.0) ? dr / r0 : 0.0;
 
-  const double lc = domain->lattice->xlattice;
-  const double half_lc = 0.5 * lc;
-  double delta = cut[type];
-  double vfrac_scale = 1.0;
-  if (fabs(r0 - delta) <= half_lc)
-    vfrac_scale = (-1.0 / (2.0 * half_lc)) * r0 + (1.0 + (delta - half_lc) / (2.0 * half_lc));
+  const double half_lc = 0.5 * domain->lattice->xlattice;
+  double vfrac_scale = vfrac_taper(r0, cut[type], half_lc);
 
   double *vfrac = atom->dvector[index_vfrac];
   double vfrac_eff = 0.5 * (vfrac[i] + vfrac[j]);
