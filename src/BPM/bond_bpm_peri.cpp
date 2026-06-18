@@ -228,7 +228,7 @@ void BondBPMPeri::compute(int eflag, int vflag)
 
   int i1, i2, itmp, n, type;
   double delx, dely, delz, rsq, r, r0, dr, stretch, fbond, ebond;
-  double delta, vfrac_scale, vfrac_eff;
+  double vfrac_scale, vfrac_eff;
 
   ev_init(eflag, vflag);
 
@@ -331,11 +331,7 @@ void BondBPMPeri::compute(int eflag, int vflag)
 
     // partial-volume correction: taper the nodal volume for bonds whose
     // reference length is within half a lattice spacing of the horizon
-    delta = cut[type];
-    if (fabs(r0 - delta) <= half_lc)
-      vfrac_scale = (-1.0 / (2.0 * half_lc)) * r0 + (1.0 + (delta - half_lc) / (2.0 * half_lc));
-    else
-      vfrac_scale = 1.0;
+    vfrac_scale = vfrac_taper(r0, cut[type], half_lc);
 
     // bond force and energy. The mean nodal volume keeps the bond Newton-third-
     // law balanced (equal and opposite); for uniform nodal volume this reduces to
