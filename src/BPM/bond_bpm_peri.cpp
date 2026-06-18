@@ -504,10 +504,7 @@ void BondBPMPeri::compute_wvolume()
     int type = bondlist[n][2];
 
     double r0 = bondstore[n][0];
-    double delta = cut[type];
-    double scale = 1.0;
-    if (fabs(r0 - delta) <= half_lc)
-      scale = (-1.0 / (2.0 * half_lc)) * r0 + (1.0 + (delta - half_lc) / (2.0 * half_lc));
+    double scale = vfrac_taper(r0, cut[type], half_lc);
 
     if (i1 < nlocal) wvolume[i1] += r0 * vfrac[i2] * scale;
     if (i2 < nlocal) wvolume[i2] += r0 * vfrac[i1] * scale;
