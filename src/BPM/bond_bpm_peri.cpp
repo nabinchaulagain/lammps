@@ -607,10 +607,7 @@ void BondBPMPeri::compute_plastic_state()
     double dr = r - r0;
     if (fabs(dr) < NEAR_ZERO) dr = 0.0;
 
-    double delta = cut[type];
-    double scale = 1.0;
-    if (fabs(r0 - delta) <= half_lc)
-      scale = (-1.0 / (2.0 * half_lc)) * r0 + (1.0 + (delta - half_lc) / (2.0 * half_lc));
+    double scale = vfrac_taper(r0, cut[type], half_lc);
 
     double dev = dr - 0.5 * (theta[i1] + theta[i2]) * r0 / 3.0;
     double edp = bondstore[n][1];
