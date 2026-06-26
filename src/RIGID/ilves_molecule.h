@@ -43,8 +43,6 @@ public:
         // invmass[i] is 1/mass of the ith atom (borrowed; owned by the caller).
         // The atom graph and atom count are construction-only and not retained.
         const double *invmass;
-        int num;       // The number of atoms in the molecule.
-        Graph graph;   // the atomic graph of the molecule.
     } atoms;
 
     struct Bonds {
@@ -55,8 +53,6 @@ public:
         // Bond 0 connects atom1[0] and atom2[0].
         std::vector<int> atom1;
         std::vector<int> atom2;
-        std::vector<int> latom1;
-        std::vector<int> latom2;
 
         // The bond length squared of each bond.
         std::vector<double> sigma2;
