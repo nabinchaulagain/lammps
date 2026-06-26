@@ -85,7 +85,6 @@ void Ilves::step(double **const dx)
 
 double Ilves::make_rhs(double **const x, double **const xprime, const bool compute_x_ab)
 {
-  const bool fill_xprime_ab = !xprime_ab.back().empty();
   const int n = mol->bonds.num;
   double *const rhs = solver->rhs.data();
 
@@ -100,8 +99,7 @@ double Ilves::make_rhs(double **const x, double **const xprime, const bool compu
 
     double rcd[DIM];
     for (int d = 0; d < DIM; ++d) rcd[d] = xprime[b][d] - xprime[a][d];
-    if (fill_xprime_ab)
-      for (int d = 0; d < DIM; ++d) xprime_ab[d][k] = rcd[d];
+    for (int d = 0; d < DIM; ++d) xprime_ab[d][k] = rcd[d];
 
     const double scalar = rcd[XX] * rcd[XX] + rcd[YY] * rcd[YY] + rcd[ZZ] * rcd[ZZ];
 
