@@ -274,16 +274,12 @@ Molecule::Molecule(const int nbonds,
     }
 }
 
-void Molecule::renumber_bonds(const std::vector<int> &perm,
-                              const bool renumber_graph) {
+void Molecule::renumber_bonds(const std::vector<int> &perm) {
     Molecule::Bonds new_bonds;
 
     // Copy old vectors.
     new_bonds.atom1 = bonds.atom1;
     new_bonds.atom2 = bonds.atom2;
-
-    new_bonds.latom1 = bonds.latom1;
-    new_bonds.latom2 = bonds.latom2;
 
     new_bonds.sigma2 = bonds.sigma2;
     new_bonds.invsigma2 = bonds.invsigma2;
@@ -293,26 +289,15 @@ void Molecule::renumber_bonds(const std::vector<int> &perm,
         bonds.atom1[bond] = new_bonds.atom1[perm[bond]];
         bonds.atom2[bond] = new_bonds.atom2[perm[bond]];
 
-        bonds.latom1[bond] = new_bonds.latom1[perm[bond]];
-        bonds.latom2[bond] = new_bonds.latom2[perm[bond]];
-
         bonds.sigma2[bond] = new_bonds.sigma2[perm[bond]];
         bonds.invsigma2[bond] = new_bonds.invsigma2[perm[bond]];
-    }
-
-    // Renumber the vertices of the bond graph.
-    if (renumber_graph) {
-        std::vector<int> iperm;
-        bonds.graph.renumber_vertices(perm, iperm);
     }
 }
 
 double Molecule::memory_usage() const
 {
-    double bytes = atoms.graph.memory_usage() + bonds.graph.memory_usage();
-    bytes += (double) (bonds.atom1.size() + bonds.atom2.size() + bonds.latom1.size() +
-                       bonds.latom2.size()) *
-        sizeof(int);
+    double bytes = bonds.graph.memory_usage();
+    bytes += (double) (bonds.atom1.size() + bonds.atom2.size()) * sizeof(int);
     bytes += (double) (bonds.sigma2.size() + bonds.invsigma2.size()) * sizeof(double);
     return bytes;
 }
