@@ -109,26 +109,7 @@ PairLdd::~PairLdd()
   if (allocated) {
     memory->destroy(setflag);
     memory->destroy(cutsq);
-    // delete the per-species-pair indicator/potential objects and their grids
-    if (Inds) {
-      for (int i = 0; i < nelements; i++) {
-        for (int j = 0; j < nelements; j++) {
-          delete Inds[i][j];
-          delete Potls[i][j];
-          delete GradPotls[i][j];
-        }
-        delete[] Inds[i];
-        delete[] Potls[i];
-        delete[] GradPotls[i];
-      }
-      delete[] Inds;
-      delete[] Potls;
-      delete[] GradPotls;
-    }
-    memory->destroy(ignore_pair);
-    memory->destroy(ignore_me);
-    memory->destroy(bGradient);
-    memory->destroy(self_interaction);
+    deallocate_species();
     allocated = 0;
   }
 
