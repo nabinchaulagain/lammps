@@ -45,7 +45,7 @@ FixViscousNonlinear::FixViscousNonlinear(LAMMPS *lmp, int narg, char **arg) :
   rho_fluid = utils::numeric(FLERR, arg[3], false, lmp);
   mu_fluid = utils::numeric(FLERR, arg[4], false, lmp);
   if (rho_fluid <= 0.0 || mu_fluid <= 0.0)
-    error->all(FLERR, "Fix viscous/nonlinear gas density and viscosity must be > 0");
+    error->all(FLERR, "Fix viscous/nonlinear fluid density and viscosity must be > 0");
 
   v_fluid[0] = v_fluid[1] = v_fluid[2] = 0.0;
 
@@ -54,7 +54,7 @@ FixViscousNonlinear::FixViscousNonlinear(LAMMPS *lmp, int narg, char **arg) :
   int iarg = 5;
   while (iarg < narg) {
     if (strcmp(arg[iarg], "velocity") == 0) {
-      if (iarg + 4 > narg) error->all(FLERR, "Illegal fix viscous/nonlinear command");
+      if (iarg + 4 > narg) utils::missing_cmd_args(FLERR, "fix viscous/nonlinear velocity", error);
       v_fluid[0] = utils::numeric(FLERR, arg[iarg + 1], false, lmp);
       v_fluid[1] = utils::numeric(FLERR, arg[iarg + 2], false, lmp);
       v_fluid[2] = utils::numeric(FLERR, arg[iarg + 3], false, lmp);
