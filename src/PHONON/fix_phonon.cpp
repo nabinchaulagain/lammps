@@ -68,10 +68,7 @@ FixPhonon::FixPhonon(LAMMPS *lmp, int narg, char **arg) : Fix(lmp, narg, arg)
 {
   if (lmp->citeme) lmp->citeme->add(cite_fix_phonon);
 
-  MPI_Comm_rank(world, &me);
-  MPI_Comm_size(world, &nprocs);
-
-  if (narg < 8) error->all(FLERR, "Illegal fix phonon command: number of arguments < 8");
+  if (narg < 8) utils::missing_cmd_args(FLERR, "fix phonon", error);
 
   // Calculate this fix every n steps
   nevery = utils::inumeric(FLERR, arg[3], false, lmp);
@@ -96,13 +93,13 @@ FixPhonon::FixPhonon(LAMMPS *lmp, int narg, char **arg) : Fix(lmp, narg, arg)
   // other command-line options
   while (iarg < narg) {
     if (strcmp(arg[iarg], "sysdim") == 0) {
-      if (++iarg >= narg) error->all(FLERR, "Illegal fix phonon command: incomplete command-line options");
+      if (++iarg >= narg) utils::missing_cmd_args(FLERR, "fix phonon sysdim", error);
       sdim = utils::inumeric(FLERR, arg[iarg], false, lmp);
       if (sdim < 1)
         error->all(FLERR, iarg, "Illegal fix phonon command: sysdim should not be less than 1");
 
     } else if (strcmp(arg[iarg], "nasr") == 0) {
-      if (++iarg >= narg) error->all(FLERR, "Illegal fix phonon command: incomplete command-line options");
+      if (++iarg >= narg) utils::missing_cmd_args(FLERR, "fix phonon nasr", error);
       nasr = utils::inumeric(FLERR, arg[iarg], false, lmp);
 
     } else {
