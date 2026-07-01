@@ -169,8 +169,11 @@ SparseDirectSolver::FillMatrixGenerator::FillMatrixGenerator(const Graph &matrix
     : matrix(matrix),
       perm(matrix.num_nodes()),
       iperm(matrix.num_nodes()),
-      matrix_mem_pool(matrix.num_edges() * 2),
-      active_rows_mem_pool(matrix.num_nodes()) {
+      // size the initial arena buffer for the expected number of list nodes
+      // (value + the two list-node link pointers), matching the up-front
+      // reservation the ported growing pool used; the arena grows if needed.
+      matrix_mem_pool(matrix.num_edges() * 2 * (sizeof(MatrixEntry) + 2 * sizeof(void *))),
+      active_rows_mem_pool(matrix.num_nodes() * (sizeof(int) + 2 * sizeof(void *))) {
 
     fillin_matrix.nnodes = matrix.num_nodes();
     fillin_matrix.xadj.resize(matrix.num_nodes() + 1);
