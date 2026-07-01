@@ -68,9 +68,6 @@ FixPhonon::FixPhonon(LAMMPS *lmp, int narg, char **arg) : Fix(lmp, narg, arg)
 {
   if (lmp->citeme) lmp->citeme->add(cite_fix_phonon);
 
-  MPI_Comm_rank(world, &me);
-  MPI_Comm_size(world, &nprocs);
-
   if (narg < 8) utils::missing_cmd_args(FLERR, "fix phonon", error);
 
   // Calculate this fix every n steps
@@ -548,9 +545,9 @@ void FixPhonon::readmap()
 
     // gather IDs on local proc
     displs[0] = 0;
-    for (int i = 0; i < nprocs; ++i) recvcnts[i] = 0;
+    for (int i = 0; i < comm->nprocs; ++i) recvcnts[i] = 0;
     MPI_Allgather(&nfind,1,MPI_INT,recvcnts,1,MPI_INT,world);
-    for (int i = 1; i < nprocs; ++i) displs[i] = displs[i-1] + recvcnts[i-1];
+    for (int i = 1; i < comm->nprocs; ++i) displs[i] = displs[i-1] + recvcnts[i-1];
 
     MPI_Allgatherv(tag_loc,nfind,MPI_LMP_TAGINT,tag_all,recvcnts,displs,MPI_LMP_TAGINT,world);
     for (int i = 0; i < ngroup; ++i) {
