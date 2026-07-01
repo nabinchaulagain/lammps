@@ -68,9 +68,6 @@ FixPhonon::FixPhonon(LAMMPS *lmp, int narg, char **arg) : Fix(lmp, narg, arg)
 {
   if (lmp->citeme) lmp->citeme->add(cite_fix_phonon);
 
-  MPI_Comm_rank(world, &me);
-  MPI_Comm_size(world, &nprocs);
-
   if (narg < 8) utils::missing_cmd_args(FLERR, "fix phonon", error);
 
   // Calculate this fix every n steps
@@ -700,15 +697,15 @@ void FixPhonon::postprocess( )
 
   // to collect all local Phi_q to root
   displs[0]=0;
-  for (int i = 0; i < nprocs; ++i) recvcnts[i] = fft_cnts[i]*fft_dim*2;
-  for (int i = 1; i < nprocs; ++i) displs[i] = displs[i-1] + recvcnts[i-1];
+  for (int i = 0; i < comm->nprocs; ++i) recvcnts[i] = fft_cnts[i]*fft_dim*2;
+  for (int i = 1; i < comm->nprocs; ++i) displs[i] = displs[i-1] + recvcnts[i-1];
   MPI_Gatherv(Phi_q[0],mynq*fft_dim2*2,MPI_DOUBLE,Phi_all[0],recvcnts,displs,MPI_DOUBLE,0,world);
 
   // to collect all basis info and averaged it on root
   auto *basis_root = new double[fft_dim];
   if (fft_dim > sysdim) MPI_Reduce(&basis[1][0], &basis_root[sysdim], fft_dim-sysdim, MPI_DOUBLE, MPI_SUM, 0, world);
 
-  if (me == 0) { // output dynamic matrix by root
+  if (comm->me == 0) { // output dynamic matrix by root
 
     // get basis info
     for (idim = 0;      idim < sysdim;  ++idim) basis_root[idim]  = 0.;
