@@ -3448,9 +3448,6 @@ void FixSurfaceLocal::connectivity2d_complete()
 
   int i, j, jconnect;
   tagint jtag;
-  double dotnorm;
-  double *inorm, *jnorm;
-  double icrossj[3];
 
   for (int i = 0; i < nlocal; i++) {
     if (line[i] < 0) continue;
