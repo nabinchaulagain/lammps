@@ -189,7 +189,6 @@ void PPPMKokkos<DeviceType>::init()
   cutoff = *p_cutoff;
 
   // if kspace is TIP4P, extract TIP4P params from pair style
-  // bond/angle are not yet init(), so ensure equilibrium request is valid
 
   qdist = 0.0;
 
@@ -699,6 +698,12 @@ void PPPMKokkos<DeviceType>::compute(int eflag, int vflag)
     gc->forward_comm(Grid3d::KSPACE,this,FORWARD_IK_PERATOM,7,sizeof(FFT_SCALAR),
                      k_gc_buf1,k_gc_buf2,MPI_FFT_SCALAR);
 
+  // energy/force scale factor. must be updated before fieldforce(),
+  // which folds it into the interpolated grid forces, since the scale
+  // parameter may have been changed by fix adapt since the last call
+
+  qscale = qqrd2e * scale;
+
   // calculate the force on my particles
 
   fieldforce();
@@ -708,8 +713,6 @@ void PPPMKokkos<DeviceType>::compute(int eflag, int vflag)
   if (evflag_atom) fieldforce_peratom();
 
   // sum global energy across procs and add in volume-dependent term
-
-  qscale = qqrd2e * scale;
 
   if (eflag_global) {
     double energy_all;
