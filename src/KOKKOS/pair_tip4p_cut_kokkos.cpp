@@ -34,7 +34,7 @@ void PairTIP4PCutKokkos<DeviceType>::compute(int eflag_in, int vflag_in)
   if (this->eflag || this->vflag)
     Kokkos::parallel_reduce(Kokkos::RangePolicy<DeviceType,TagPairTIP4PCutCompute<1>>(0,inum), *this, ev);
   else
-    Kokkos::parallel_reduce(Kokkos::RangePolicy<DeviceType,TagPairTIP4PCutCompute<0>>(0,inum), *this, ev);
+    Kokkos::parallel_for(Kokkos::RangePolicy<DeviceType,TagPairTIP4PCutCompute<0>>(0,inum), *this);
 
   this->copymode = 0;
 
@@ -112,9 +112,9 @@ void PairTIP4PCutKokkos<DeviceType>::operator()(TagPairTIP4PCutCompute<EVFLAG>,
     KK_ACC_FLOAT v[6] = {0,0,0,0,0,0};
 
     if (itype != m_typeO) {
-      Kokkos::atomic_add(&f(i,0), (KK_ACC_FLOAT)(delx*cforce));
-      Kokkos::atomic_add(&f(i,1), (KK_ACC_FLOAT)(dely*cforce));
-      Kokkos::atomic_add(&f(i,2), (KK_ACC_FLOAT)(delz*cforce));
+      Kokkos::atomic_add(&this->f(i,0), (KK_ACC_FLOAT)(delx*cforce));
+      Kokkos::atomic_add(&this->f(i,1), (KK_ACC_FLOAT)(dely*cforce));
+      Kokkos::atomic_add(&this->f(i,2), (KK_ACC_FLOAT)(delz*cforce));
       if (EVFLAG && this->vflag) {
         v[0] = x(i,0)*delx*cforce; v[1] = x(i,1)*dely*cforce; v[2] = x(i,2)*delz*cforce;
         v[3] = x(i,0)*dely*cforce; v[4] = x(i,0)*delz*cforce; v[5] = x(i,1)*delz*cforce;
@@ -123,17 +123,17 @@ void PairTIP4PCutKokkos<DeviceType>::operator()(TagPairTIP4PCutCompute<EVFLAG>,
     } else {
       key++;
       const KK_FLOAT fdx = delx*cforce, fdy = dely*cforce, fdz = delz*cforce;
-      const KK_ACC_FLOAT fOx = fdx*m_alphaO, fOy = fdy*m_alphaO, fOz = fdz*m_alphaO;
-      const KK_ACC_FLOAT fHx = fdx*m_alphaH, fHy = fdy*m_alphaH, fHz = fdz*m_alphaH;
-      Kokkos::atomic_add(&f(i,0), (KK_ACC_FLOAT)fOx);
-      Kokkos::atomic_add(&f(i,1), (KK_ACC_FLOAT)fOy);
-      Kokkos::atomic_add(&f(i,2), (KK_ACC_FLOAT)fOz);
-      Kokkos::atomic_add(&f(iH1,0), (KK_ACC_FLOAT)fHx);
-      Kokkos::atomic_add(&f(iH1,1), (KK_ACC_FLOAT)fHy);
-      Kokkos::atomic_add(&f(iH1,2), (KK_ACC_FLOAT)fHz);
-      Kokkos::atomic_add(&f(iH2,0), (KK_ACC_FLOAT)fHx);
-      Kokkos::atomic_add(&f(iH2,1), (KK_ACC_FLOAT)fHy);
-      Kokkos::atomic_add(&f(iH2,2), (KK_ACC_FLOAT)fHz);
+      const KK_ACC_FLOAT fOx = fdx*this->m_alphaO, fOy = fdy*this->m_alphaO, fOz = fdz*this->m_alphaO;
+      const KK_ACC_FLOAT fHx = fdx*this->m_alphaH, fHy = fdy*this->m_alphaH, fHz = fdz*this->m_alphaH;
+      Kokkos::atomic_add(&this->f(i,0), (KK_ACC_FLOAT)fOx);
+      Kokkos::atomic_add(&this->f(i,1), (KK_ACC_FLOAT)fOy);
+      Kokkos::atomic_add(&this->f(i,2), (KK_ACC_FLOAT)fOz);
+      Kokkos::atomic_add(&this->f(iH1,0), (KK_ACC_FLOAT)fHx);
+      Kokkos::atomic_add(&this->f(iH1,1), (KK_ACC_FLOAT)fHy);
+      Kokkos::atomic_add(&this->f(iH1,2), (KK_ACC_FLOAT)fHz);
+      Kokkos::atomic_add(&this->f(iH2,0), (KK_ACC_FLOAT)fHx);
+      Kokkos::atomic_add(&this->f(iH2,1), (KK_ACC_FLOAT)fHy);
+      Kokkos::atomic_add(&this->f(iH2,2), (KK_ACC_FLOAT)fHz);
       if (EVFLAG && this->vflag) {
         v[0] = x(i,0)*fOx + x(iH1,0)*fHx + x(iH2,0)*fHx;
         v[1] = x(i,1)*fOy + x(iH1,1)*fHy + x(iH2,1)*fHy;
@@ -146,9 +146,9 @@ void PairTIP4PCutKokkos<DeviceType>::operator()(TagPairTIP4PCutCompute<EVFLAG>,
     }
 
     if (jtype != m_typeO) {
-      Kokkos::atomic_add(&f(j,0), (KK_ACC_FLOAT)(-delx*cforce));
-      Kokkos::atomic_add(&f(j,1), (KK_ACC_FLOAT)(-dely*cforce));
-      Kokkos::atomic_add(&f(j,2), (KK_ACC_FLOAT)(-delz*cforce));
+      Kokkos::atomic_add(&this->f(j,0), (KK_ACC_FLOAT)(-delx*cforce));
+      Kokkos::atomic_add(&this->f(j,1), (KK_ACC_FLOAT)(-dely*cforce));
+      Kokkos::atomic_add(&this->f(j,2), (KK_ACC_FLOAT)(-delz*cforce));
       if (EVFLAG && this->vflag) {
         v[0] -= x(j,0)*delx*cforce; v[1] -= x(j,1)*dely*cforce; v[2] -= x(j,2)*delz*cforce;
         v[3] -= x(j,0)*dely*cforce; v[4] -= x(j,0)*delz*cforce; v[5] -= x(j,1)*delz*cforce;
@@ -157,17 +157,17 @@ void PairTIP4PCutKokkos<DeviceType>::operator()(TagPairTIP4PCutCompute<EVFLAG>,
     } else {
       key += 2;
       const KK_FLOAT fdx = -delx*cforce, fdy = -dely*cforce, fdz = -delz*cforce;
-      const KK_ACC_FLOAT fOx = fdx*m_alphaO, fOy = fdy*m_alphaO, fOz = fdz*m_alphaO;
-      const KK_ACC_FLOAT fHx = fdx*m_alphaH, fHy = fdy*m_alphaH, fHz = fdz*m_alphaH;
-      Kokkos::atomic_add(&f(j,0), (KK_ACC_FLOAT)fOx);
-      Kokkos::atomic_add(&f(j,1), (KK_ACC_FLOAT)fOy);
-      Kokkos::atomic_add(&f(j,2), (KK_ACC_FLOAT)fOz);
-      Kokkos::atomic_add(&f(jH1,0), (KK_ACC_FLOAT)fHx);
-      Kokkos::atomic_add(&f(jH1,1), (KK_ACC_FLOAT)fHy);
-      Kokkos::atomic_add(&f(jH1,2), (KK_ACC_FLOAT)fHz);
-      Kokkos::atomic_add(&f(jH2,0), (KK_ACC_FLOAT)fHx);
-      Kokkos::atomic_add(&f(jH2,1), (KK_ACC_FLOAT)fHy);
-      Kokkos::atomic_add(&f(jH2,2), (KK_ACC_FLOAT)fHz);
+      const KK_ACC_FLOAT fOx = fdx*this->m_alphaO, fOy = fdy*this->m_alphaO, fOz = fdz*this->m_alphaO;
+      const KK_ACC_FLOAT fHx = fdx*this->m_alphaH, fHy = fdy*this->m_alphaH, fHz = fdz*this->m_alphaH;
+      Kokkos::atomic_add(&this->f(j,0), (KK_ACC_FLOAT)fOx);
+      Kokkos::atomic_add(&this->f(j,1), (KK_ACC_FLOAT)fOy);
+      Kokkos::atomic_add(&this->f(j,2), (KK_ACC_FLOAT)fOz);
+      Kokkos::atomic_add(&this->f(jH1,0), (KK_ACC_FLOAT)fHx);
+      Kokkos::atomic_add(&this->f(jH1,1), (KK_ACC_FLOAT)fHy);
+      Kokkos::atomic_add(&this->f(jH1,2), (KK_ACC_FLOAT)fHz);
+      Kokkos::atomic_add(&this->f(jH2,0), (KK_ACC_FLOAT)fHx);
+      Kokkos::atomic_add(&this->f(jH2,1), (KK_ACC_FLOAT)fHy);
+      Kokkos::atomic_add(&this->f(jH2,2), (KK_ACC_FLOAT)fHz);
       if (EVFLAG && this->vflag) {
         v[0] += x(j,0)*fOx + x(jH1,0)*fHx + x(jH2,0)*fHx;
         v[1] += x(j,1)*fOy + x(jH1,1)*fHy + x(jH2,1)*fHy;
@@ -184,6 +184,17 @@ void PairTIP4PCutKokkos<DeviceType>::operator()(TagPairTIP4PCutCompute<EVFLAG>,
 
     if (EVFLAG) ev_tally_tip4p(ev,key,vlist,v,ecoul);
   }
+}
+
+template<class DeviceType>
+template<int EVFLAG>
+// NOLINTNEXTLINE
+KOKKOS_INLINE_FUNCTION
+void PairTIP4PCutKokkos<DeviceType>::operator()(TagPairTIP4PCutCompute<EVFLAG>,
+                                                const int &ii) const
+{
+  EV_FLOAT ev;
+  this->operator()(TagPairTIP4PCutCompute<EVFLAG>(), ii, ev);
 }
 
 /* ---------------------------------------------------------------------- */
