@@ -27,18 +27,19 @@ void PairLJCutTIP4PCutKokkos<DeviceType>::compute(int eflag_in, int vflag_in)
 {
   const int inum = this->prepare(eflag_in, vflag_in);
 
-  // copy per-type-pair LJ coefficients to device (small, refreshed each call)
+  // copy per-type-pair LJ coefficients to the device when they have
+  // changed, i.e. after init_one() calls from setup or fix adapt
 
-  const int ntp1 = this->atom->ntypes + 1;
-  if ((int)d_lj1.extent(0) != ntp1) {
-    d_lj1 = typename AT::t_kkfloat_2d("lj/cut/tip4p/cut/kk:lj1",ntp1,ntp1);
-    d_lj2 = typename AT::t_kkfloat_2d("lj/cut/tip4p/cut/kk:lj2",ntp1,ntp1);
-    d_lj3 = typename AT::t_kkfloat_2d("lj/cut/tip4p/cut/kk:lj3",ntp1,ntp1);
-    d_lj4 = typename AT::t_kkfloat_2d("lj/cut/tip4p/cut/kk:lj4",ntp1,ntp1);
-    d_offset = typename AT::t_kkfloat_2d("lj/cut/tip4p/cut/kk:offset",ntp1,ntp1);
-    d_cut_ljsq = typename AT::t_kkfloat_2d("lj/cut/tip4p/cut/kk:cut_ljsq",ntp1,ntp1);
-  }
-  {
+  if (!lj_coeffs_synced) {
+    const int ntp1 = this->atom->ntypes + 1;
+    if ((int)d_lj1.extent(0) != ntp1) {
+      d_lj1 = typename AT::t_kkfloat_2d("lj/cut/tip4p/cut/kk:lj1",ntp1,ntp1);
+      d_lj2 = typename AT::t_kkfloat_2d("lj/cut/tip4p/cut/kk:lj2",ntp1,ntp1);
+      d_lj3 = typename AT::t_kkfloat_2d("lj/cut/tip4p/cut/kk:lj3",ntp1,ntp1);
+      d_lj4 = typename AT::t_kkfloat_2d("lj/cut/tip4p/cut/kk:lj4",ntp1,ntp1);
+      d_offset = typename AT::t_kkfloat_2d("lj/cut/tip4p/cut/kk:offset",ntp1,ntp1);
+      d_cut_ljsq = typename AT::t_kkfloat_2d("lj/cut/tip4p/cut/kk:cut_ljsq",ntp1,ntp1);
+    }
     auto h_lj1 = Kokkos::create_mirror_view(d_lj1);
     auto h_lj2 = Kokkos::create_mirror_view(d_lj2);
     auto h_lj3 = Kokkos::create_mirror_view(d_lj3);
@@ -54,6 +55,7 @@ void PairLJCutTIP4PCutKokkos<DeviceType>::compute(int eflag_in, int vflag_in)
     Kokkos::deep_copy(d_lj1,h_lj1); Kokkos::deep_copy(d_lj2,h_lj2);
     Kokkos::deep_copy(d_lj3,h_lj3); Kokkos::deep_copy(d_lj4,h_lj4);
     Kokkos::deep_copy(d_offset,h_offset); Kokkos::deep_copy(d_cut_ljsq,h_cut_ljsq);
+    lj_coeffs_synced = 1;
   }
 
   this->copymode = 1;
@@ -65,7 +67,7 @@ void PairLJCutTIP4PCutKokkos<DeviceType>::compute(int eflag_in, int vflag_in)
   if (this->eflag || this->vflag)
     Kokkos::parallel_reduce(Kokkos::RangePolicy<DeviceType,TagPairLJCutTIP4PCutCompute<1>>(0,inum), *this, ev);
   else
-    Kokkos::parallel_reduce(Kokkos::RangePolicy<DeviceType,TagPairLJCutTIP4PCutCompute<0>>(0,inum), *this, ev);
+    Kokkos::parallel_for(Kokkos::RangePolicy<DeviceType,TagPairLJCutTIP4PCutCompute<0>>(0,inum), *this);
 
   this->copymode = 0;
 
@@ -74,47 +76,15 @@ void PairLJCutTIP4PCutKokkos<DeviceType>::compute(int eflag_in, int vflag_in)
 }
 
 /* ----------------------------------------------------------------------
-   standard pairwise (LJ) energy/virial tally for a half neighbor list
+   mark the device copy of the LJ coefficients as stale
 ------------------------------------------------------------------------- */
 
 template<class DeviceType>
-// NOLINTNEXTLINE
-KOKKOS_INLINE_FUNCTION
-void PairLJCutTIP4PCutKokkos<DeviceType>::ev_tally(EV_FLOAT &ev, const int &i, const int &j,
-    const KK_FLOAT &evdwl, const KK_FLOAT &fpair,
-    const KK_FLOAT &delx, const KK_FLOAT &dely, const KK_FLOAT &delz) const
+double PairLJCutTIP4PCutKokkos<DeviceType>::init_one(int i, int j)
 {
-  if (this->eflag_global) ev.evdwl += evdwl;
-  if (this->eflag_atom) {
-    Kokkos::atomic_add(&d_eatom[i], (KK_ACC_FLOAT)((KK_FLOAT)0.5*evdwl));
-    Kokkos::atomic_add(&d_eatom[j], (KK_ACC_FLOAT)((KK_FLOAT)0.5*evdwl));
-  }
-  if (this->vflag_global || this->vflag_atom) {
-    const KK_FLOAT v0 = delx*delx*fpair;
-    const KK_FLOAT v1 = dely*dely*fpair;
-    const KK_FLOAT v2 = delz*delz*fpair;
-    const KK_FLOAT v3 = delx*dely*fpair;
-    const KK_FLOAT v4 = delx*delz*fpair;
-    const KK_FLOAT v5 = dely*delz*fpair;
-    if (this->vflag_global) {
-      ev.v[0] += v0; ev.v[1] += v1; ev.v[2] += v2;
-      ev.v[3] += v3; ev.v[4] += v4; ev.v[5] += v5;
-    }
-    if (this->vflag_atom) {
-      Kokkos::atomic_add(&d_vatom(i,0), (KK_ACC_FLOAT)((KK_FLOAT)0.5*v0));
-      Kokkos::atomic_add(&d_vatom(i,1), (KK_ACC_FLOAT)((KK_FLOAT)0.5*v1));
-      Kokkos::atomic_add(&d_vatom(i,2), (KK_ACC_FLOAT)((KK_FLOAT)0.5*v2));
-      Kokkos::atomic_add(&d_vatom(i,3), (KK_ACC_FLOAT)((KK_FLOAT)0.5*v3));
-      Kokkos::atomic_add(&d_vatom(i,4), (KK_ACC_FLOAT)((KK_FLOAT)0.5*v4));
-      Kokkos::atomic_add(&d_vatom(i,5), (KK_ACC_FLOAT)((KK_FLOAT)0.5*v5));
-      Kokkos::atomic_add(&d_vatom(j,0), (KK_ACC_FLOAT)((KK_FLOAT)0.5*v0));
-      Kokkos::atomic_add(&d_vatom(j,1), (KK_ACC_FLOAT)((KK_FLOAT)0.5*v1));
-      Kokkos::atomic_add(&d_vatom(j,2), (KK_ACC_FLOAT)((KK_FLOAT)0.5*v2));
-      Kokkos::atomic_add(&d_vatom(j,3), (KK_ACC_FLOAT)((KK_FLOAT)0.5*v3));
-      Kokkos::atomic_add(&d_vatom(j,4), (KK_ACC_FLOAT)((KK_FLOAT)0.5*v4));
-      Kokkos::atomic_add(&d_vatom(j,5), (KK_ACC_FLOAT)((KK_FLOAT)0.5*v5));
-    }
-  }
+  const double cutone = PairLJCutTIP4PCut::init_one(i,j);
+  lj_coeffs_synced = 0;
+  return cutone;
 }
 
 /* ----------------------------------------------------------------------
@@ -167,12 +137,12 @@ void PairLJCutTIP4PCutKokkos<DeviceType>::operator()(TagPairLJCutTIP4PCutCompute
       const KK_FLOAT r6inv = r2inv*r2inv*r2inv;
       const KK_FLOAT forcelj = factor_lj * r6inv *
           (d_lj1(itype,jtype)*r6inv - d_lj2(itype,jtype)) * r2inv;
-      Kokkos::atomic_add(&f(i,0), (KK_ACC_FLOAT)(adelx*forcelj));
-      Kokkos::atomic_add(&f(i,1), (KK_ACC_FLOAT)(adely*forcelj));
-      Kokkos::atomic_add(&f(i,2), (KK_ACC_FLOAT)(adelz*forcelj));
-      Kokkos::atomic_add(&f(j,0), (KK_ACC_FLOAT)(-adelx*forcelj));
-      Kokkos::atomic_add(&f(j,1), (KK_ACC_FLOAT)(-adely*forcelj));
-      Kokkos::atomic_add(&f(j,2), (KK_ACC_FLOAT)(-adelz*forcelj));
+      Kokkos::atomic_add(&this->f(i,0), (KK_ACC_FLOAT)(adelx*forcelj));
+      Kokkos::atomic_add(&this->f(i,1), (KK_ACC_FLOAT)(adely*forcelj));
+      Kokkos::atomic_add(&this->f(i,2), (KK_ACC_FLOAT)(adelz*forcelj));
+      Kokkos::atomic_add(&this->f(j,0), (KK_ACC_FLOAT)(-adelx*forcelj));
+      Kokkos::atomic_add(&this->f(j,1), (KK_ACC_FLOAT)(-adely*forcelj));
+      Kokkos::atomic_add(&this->f(j,2), (KK_ACC_FLOAT)(-adelz*forcelj));
       if (EVFLAG) {
         KK_FLOAT evdwl = 0.0;
         if (this->eflag)
@@ -213,9 +183,9 @@ void PairLJCutTIP4PCutKokkos<DeviceType>::operator()(TagPairLJCutTIP4PCutCompute
     KK_ACC_FLOAT v[6] = {0,0,0,0,0,0};
 
     if (itype != m_typeO) {
-      Kokkos::atomic_add(&f(i,0), (KK_ACC_FLOAT)(delx*cforce));
-      Kokkos::atomic_add(&f(i,1), (KK_ACC_FLOAT)(dely*cforce));
-      Kokkos::atomic_add(&f(i,2), (KK_ACC_FLOAT)(delz*cforce));
+      Kokkos::atomic_add(&this->f(i,0), (KK_ACC_FLOAT)(delx*cforce));
+      Kokkos::atomic_add(&this->f(i,1), (KK_ACC_FLOAT)(dely*cforce));
+      Kokkos::atomic_add(&this->f(i,2), (KK_ACC_FLOAT)(delz*cforce));
       if (EVFLAG && this->vflag) {
         v[0] = x(i,0)*delx*cforce; v[1] = x(i,1)*dely*cforce; v[2] = x(i,2)*delz*cforce;
         v[3] = x(i,0)*dely*cforce; v[4] = x(i,0)*delz*cforce; v[5] = x(i,1)*delz*cforce;
@@ -224,17 +194,17 @@ void PairLJCutTIP4PCutKokkos<DeviceType>::operator()(TagPairLJCutTIP4PCutCompute
     } else {
       key++;
       const KK_FLOAT fdx = delx*cforce, fdy = dely*cforce, fdz = delz*cforce;
-      const KK_ACC_FLOAT fOx = fdx*m_alphaO, fOy = fdy*m_alphaO, fOz = fdz*m_alphaO;
-      const KK_ACC_FLOAT fHx = fdx*m_alphaH, fHy = fdy*m_alphaH, fHz = fdz*m_alphaH;
-      Kokkos::atomic_add(&f(i,0), (KK_ACC_FLOAT)fOx);
-      Kokkos::atomic_add(&f(i,1), (KK_ACC_FLOAT)fOy);
-      Kokkos::atomic_add(&f(i,2), (KK_ACC_FLOAT)fOz);
-      Kokkos::atomic_add(&f(iH1,0), (KK_ACC_FLOAT)fHx);
-      Kokkos::atomic_add(&f(iH1,1), (KK_ACC_FLOAT)fHy);
-      Kokkos::atomic_add(&f(iH1,2), (KK_ACC_FLOAT)fHz);
-      Kokkos::atomic_add(&f(iH2,0), (KK_ACC_FLOAT)fHx);
-      Kokkos::atomic_add(&f(iH2,1), (KK_ACC_FLOAT)fHy);
-      Kokkos::atomic_add(&f(iH2,2), (KK_ACC_FLOAT)fHz);
+      const KK_ACC_FLOAT fOx = fdx*this->m_alphaO, fOy = fdy*this->m_alphaO, fOz = fdz*this->m_alphaO;
+      const KK_ACC_FLOAT fHx = fdx*this->m_alphaH, fHy = fdy*this->m_alphaH, fHz = fdz*this->m_alphaH;
+      Kokkos::atomic_add(&this->f(i,0), (KK_ACC_FLOAT)fOx);
+      Kokkos::atomic_add(&this->f(i,1), (KK_ACC_FLOAT)fOy);
+      Kokkos::atomic_add(&this->f(i,2), (KK_ACC_FLOAT)fOz);
+      Kokkos::atomic_add(&this->f(iH1,0), (KK_ACC_FLOAT)fHx);
+      Kokkos::atomic_add(&this->f(iH1,1), (KK_ACC_FLOAT)fHy);
+      Kokkos::atomic_add(&this->f(iH1,2), (KK_ACC_FLOAT)fHz);
+      Kokkos::atomic_add(&this->f(iH2,0), (KK_ACC_FLOAT)fHx);
+      Kokkos::atomic_add(&this->f(iH2,1), (KK_ACC_FLOAT)fHy);
+      Kokkos::atomic_add(&this->f(iH2,2), (KK_ACC_FLOAT)fHz);
       if (EVFLAG && this->vflag) {
         v[0] = x(i,0)*fOx + x(iH1,0)*fHx + x(iH2,0)*fHx;
         v[1] = x(i,1)*fOy + x(iH1,1)*fHy + x(iH2,1)*fHy;
@@ -247,9 +217,9 @@ void PairLJCutTIP4PCutKokkos<DeviceType>::operator()(TagPairLJCutTIP4PCutCompute
     }
 
     if (jtype != m_typeO) {
-      Kokkos::atomic_add(&f(j,0), (KK_ACC_FLOAT)(-delx*cforce));
-      Kokkos::atomic_add(&f(j,1), (KK_ACC_FLOAT)(-dely*cforce));
-      Kokkos::atomic_add(&f(j,2), (KK_ACC_FLOAT)(-delz*cforce));
+      Kokkos::atomic_add(&this->f(j,0), (KK_ACC_FLOAT)(-delx*cforce));
+      Kokkos::atomic_add(&this->f(j,1), (KK_ACC_FLOAT)(-dely*cforce));
+      Kokkos::atomic_add(&this->f(j,2), (KK_ACC_FLOAT)(-delz*cforce));
       if (EVFLAG && this->vflag) {
         v[0] -= x(j,0)*delx*cforce; v[1] -= x(j,1)*dely*cforce; v[2] -= x(j,2)*delz*cforce;
         v[3] -= x(j,0)*dely*cforce; v[4] -= x(j,0)*delz*cforce; v[5] -= x(j,1)*delz*cforce;
@@ -258,17 +228,17 @@ void PairLJCutTIP4PCutKokkos<DeviceType>::operator()(TagPairLJCutTIP4PCutCompute
     } else {
       key += 2;
       const KK_FLOAT fdx = -delx*cforce, fdy = -dely*cforce, fdz = -delz*cforce;
-      const KK_ACC_FLOAT fOx = fdx*m_alphaO, fOy = fdy*m_alphaO, fOz = fdz*m_alphaO;
-      const KK_ACC_FLOAT fHx = fdx*m_alphaH, fHy = fdy*m_alphaH, fHz = fdz*m_alphaH;
-      Kokkos::atomic_add(&f(j,0), (KK_ACC_FLOAT)fOx);
-      Kokkos::atomic_add(&f(j,1), (KK_ACC_FLOAT)fOy);
-      Kokkos::atomic_add(&f(j,2), (KK_ACC_FLOAT)fOz);
-      Kokkos::atomic_add(&f(jH1,0), (KK_ACC_FLOAT)fHx);
-      Kokkos::atomic_add(&f(jH1,1), (KK_ACC_FLOAT)fHy);
-      Kokkos::atomic_add(&f(jH1,2), (KK_ACC_FLOAT)fHz);
-      Kokkos::atomic_add(&f(jH2,0), (KK_ACC_FLOAT)fHx);
-      Kokkos::atomic_add(&f(jH2,1), (KK_ACC_FLOAT)fHy);
-      Kokkos::atomic_add(&f(jH2,2), (KK_ACC_FLOAT)fHz);
+      const KK_ACC_FLOAT fOx = fdx*this->m_alphaO, fOy = fdy*this->m_alphaO, fOz = fdz*this->m_alphaO;
+      const KK_ACC_FLOAT fHx = fdx*this->m_alphaH, fHy = fdy*this->m_alphaH, fHz = fdz*this->m_alphaH;
+      Kokkos::atomic_add(&this->f(j,0), (KK_ACC_FLOAT)fOx);
+      Kokkos::atomic_add(&this->f(j,1), (KK_ACC_FLOAT)fOy);
+      Kokkos::atomic_add(&this->f(j,2), (KK_ACC_FLOAT)fOz);
+      Kokkos::atomic_add(&this->f(jH1,0), (KK_ACC_FLOAT)fHx);
+      Kokkos::atomic_add(&this->f(jH1,1), (KK_ACC_FLOAT)fHy);
+      Kokkos::atomic_add(&this->f(jH1,2), (KK_ACC_FLOAT)fHz);
+      Kokkos::atomic_add(&this->f(jH2,0), (KK_ACC_FLOAT)fHx);
+      Kokkos::atomic_add(&this->f(jH2,1), (KK_ACC_FLOAT)fHy);
+      Kokkos::atomic_add(&this->f(jH2,2), (KK_ACC_FLOAT)fHz);
       if (EVFLAG && this->vflag) {
         v[0] += x(j,0)*fOx + x(jH1,0)*fHx + x(jH2,0)*fHx;
         v[1] += x(j,1)*fOy + x(jH1,1)*fHy + x(jH2,1)*fHy;
@@ -285,6 +255,17 @@ void PairLJCutTIP4PCutKokkos<DeviceType>::operator()(TagPairLJCutTIP4PCutCompute
 
     if (EVFLAG) ev_tally_tip4p(ev,key,vlist,v,ecoul);
   }
+}
+
+template<class DeviceType>
+template<int EVFLAG>
+// NOLINTNEXTLINE
+KOKKOS_INLINE_FUNCTION
+void PairLJCutTIP4PCutKokkos<DeviceType>::operator()(TagPairLJCutTIP4PCutCompute<EVFLAG>,
+                                                     const int &ii) const
+{
+  EV_FLOAT ev;
+  this->operator()(TagPairLJCutTIP4PCutCompute<EVFLAG>(), ii, ev);
 }
 
 /* ---------------------------------------------------------------------- */
