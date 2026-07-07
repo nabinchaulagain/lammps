@@ -23,6 +23,7 @@ KSpaceStyle(pppm/tip4p/kk/host,PPPMTIP4PKokkos<LMPHostType>);
 #ifndef LMP_PPPM_TIP4P_KOKKOS_H
 #define LMP_PPPM_TIP4P_KOKKOS_H
 
+#include "atom_kokkos.h"
 #include "pppm_kokkos.h"
 #include <Kokkos_UnorderedMap.hpp>
 
