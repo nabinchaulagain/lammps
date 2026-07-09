@@ -1104,8 +1104,8 @@ void PairSurfGranular::walk_connections3d(std::vector<int> &composite_surfs,
   std::set<int> to_add;
 
   // Find next closest surface
-  for (int n = 0; n < contact_surfs.size(); n++) {
-    int j = contact_surfs[n].index;
+  for (std::size_t n = 0; n < contact_surfs.size(); n++) {
+    auto j = contact_surfs[n].index;
 
     if (processed_contacts.find(j) == processed_contacts.end()) {
       to_walk.insert(j);
