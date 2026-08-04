@@ -114,7 +114,6 @@ class DumpVTK : public DumpCustom {
 
   int n_calls_;
   int precision_warned;              // 1 after the single precision warning was printed
-  double (*boxcorners)[3];    // corners of triclinic domain box
   VTKWriter::Precision writeprec;    // precision of floating point output, dump_modify double
   char *filecurrent;
   char *domainfilecurrent;

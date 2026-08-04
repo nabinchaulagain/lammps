@@ -93,7 +93,7 @@ static std::string insert_before_extension(const std::string &name, const std::s
 /* ---------------------------------------------------------------------- */
 
 DumpVTK::DumpVTK(LAMMPS *lmp, int narg, char **arg) :
-    DumpCustom(lmp, narg, arg), label(nullptr), boxcorners(nullptr), write_choice(nullptr), n_calls_(0),
+    DumpCustom(lmp, narg, arg), label(nullptr), write_choice(nullptr), n_calls_(0),
     precision_warned(0), writeprec(VTKWriter::SINGLE), filecurrent(nullptr),
     domainfilecurrent(nullptr), parallelfilecurrent(nullptr), multiname_ex(nullptr)
 {
@@ -862,7 +862,6 @@ void DumpVTK::write()
     boxzhi = domain->boxhi[2];
   } else {
     domain->box_corners();
-    boxcorners = domain->corners;
   }
 
   // nme = # of dump lines this proc contributes to dump
@@ -878,16 +877,6 @@ void DumpVTK::write()
   int nmax;
   if (multiproc != nprocs) MPI_Allreduce(&nme,&nmax,1,MPI_INT,MPI_MAX,world);
   else nmax = nme;
-
-  // write timestep header
-  // for multiproc,
-  //   nheader = # of lines in this file via Allreduce on clustercomm
-
-  bigint nheader = ntotal;
-  if (multiproc)
-    MPI_Allreduce(&bnme,&nheader,1,MPI_LMP_BIGINT,MPI_SUM,clustercomm);
-
-  if (filewriter) write_header(nheader);
 
   // ensure buf is sized for packing and communicating
   // use nmax to ensure filewriter proc can receive info from others
