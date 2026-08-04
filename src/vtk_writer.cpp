@@ -148,18 +148,7 @@ template <typename T> void fwrite_be(FILE *fp, const std::vector<T> &values)
 {
   if (values.empty()) return;
   if (!little_endian()) {
-    char buf[8192];
-    std::size_t used = 0;
-    for (const auto &value : values) {
-      const auto *src = reinterpret_cast<const char *>(&value);
-      for (std::size_t b = 0; b < sizeof(T); ++b) buf[used + b] = src[b];
-      used += sizeof(T);
-      if (used + sizeof(T) > sizeof(buf)) {
-        fwrite(buf, 1, used, fp);
-        used = 0;
-      }
-    }
-    if (used) fwrite(buf, 1, used, fp);
+    fwrite(values.data(), sizeof(T), values.size(), fp);
     return;
   }
   char buf[8192];
