@@ -76,10 +76,6 @@ class DumpVTK : public DumpCustom {
 
   int parse_vtk_fields(int, char **);
   void identify_vectors();
-  int add_vtk_compute(const char *);
-  int add_vtk_fix(const char *);
-  int add_vtk_variable(const char *);
-  int add_vtk_custom(const char *, int);
   int modify_param(int, char **) override;
 
   using FnPtrWrite = void (DumpVTK::*)(int, double *);

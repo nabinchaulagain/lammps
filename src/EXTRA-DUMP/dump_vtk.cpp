@@ -1554,7 +1554,7 @@ int DumpVTK::parse_vtk_fields(int narg, char **arg)
           if (argi.get_dim() > 0 && argi.get_index1() > icompute->size_peratom_cols)
             error->all(FLERR,"Dump vtk compute {} vector is accessed out-of-range{}",
                        aname, utils::errorurl(20));
-          field2index[ATTRIBUTES+iarg] = add_vtk_compute(aname);
+          field2index[ATTRIBUTES+iarg] = add_compute(aname);
           name[ATTRIBUTES+iarg] = arg[iarg];
         }
         break;
@@ -1582,7 +1582,7 @@ int DumpVTK::parse_vtk_fields(int narg, char **arg)
             error->all(FLERR,"Dump vtk fix {} vector is accessed out-of-range{}",
                        aname, utils::errorurl(20));
 
-          field2index[ATTRIBUTES+iarg] = add_vtk_fix(aname);
+          field2index[ATTRIBUTES+iarg] = add_fix(aname);
           name[ATTRIBUTES+iarg] = arg[iarg];
         }
         break;
@@ -1599,7 +1599,7 @@ int DumpVTK::parse_vtk_fields(int narg, char **arg)
         if (input->variable->atomstyle(n) == 0)
           error->all(FLERR,"Dump vtk variable {} is not atom-style variable",aname);
 
-        field2index[ATTRIBUTES+iarg] = add_vtk_variable(aname);
+        field2index[ATTRIBUTES+iarg] = add_variable(aname);
         name[ATTRIBUTES+iarg] = arg[iarg];
         break;
 
@@ -1623,7 +1623,7 @@ int DumpVTK::parse_vtk_fields(int narg, char **arg)
             error->all(FLERR,"Dump vtk property array {} is accessed out-of-range{}",aname,
                        utils::errorurl(20));
         }
-        field2index[ATTRIBUTES+iarg] = add_vtk_custom(aname,1);
+        field2index[ATTRIBUTES+iarg] = add_custom(aname,1);
         name[ATTRIBUTES+iarg] = arg[iarg];
         break;
 
@@ -1647,7 +1647,7 @@ int DumpVTK::parse_vtk_fields(int narg, char **arg)
             error->all(FLERR,"Dump vtk property array {} is accessed out-of-range{}",aname,
                        utils::errorurl(20));
         }
-        field2index[ATTRIBUTES+iarg] = add_vtk_custom(aname,0);
+        field2index[ATTRIBUTES+iarg] = add_custom(aname,0);
         name[ATTRIBUTES+iarg] = arg[iarg];
         break;
 
@@ -1718,104 +1718,6 @@ void DumpVTK::identify_vectors()
 
 /* ---------------------------------------------------------------------- */
 
-/* ----------------------------------------------------------------------
-   add Compute to list of Compute objects used by dump
-   return index of where this Compute is in list
-   if already in list, do not add, just return index, else add to list
-------------------------------------------------------------------------- */
-
-int DumpVTK::add_vtk_compute(const char *id)
-{
-  int icompute;
-  for (icompute = 0; icompute < ncompute; icompute++)
-    if (strcmp(id,id_compute[icompute]) == 0) break;
-  if (icompute < ncompute) return icompute;
-
-  id_compute = (char **)
-    memory->srealloc(id_compute,(ncompute+1)*sizeof(char *),"dump:id_compute");
-  delete[] compute;
-  compute = new Compute*[ncompute+1];
-
-  id_compute[ncompute] = utils::strdup(id);
-  ncompute++;
-  return ncompute-1;
-}
-
-/* ----------------------------------------------------------------------
-   add Fix to list of Fix objects used by dump
-   return index of where this Fix is in list
-   if already in list, do not add, just return index, else add to list
-------------------------------------------------------------------------- */
-
-int DumpVTK::add_vtk_fix(const char *id)
-{
-  int ifix;
-  for (ifix = 0; ifix < nfix; ifix++)
-    if (strcmp(id,id_fix[ifix]) == 0) break;
-  if (ifix < nfix) return ifix;
-
-  id_fix = (char **)
-    memory->srealloc(id_fix,(nfix+1)*sizeof(char *),"dump:id_fix");
-  delete[] fix;
-  fix = new Fix*[nfix+1];
-
-  id_fix[nfix] = utils::strdup(id);
-  nfix++;
-  return nfix-1;
-}
-
-/* ----------------------------------------------------------------------
-   add Variable to list of Variables used by dump
-   return index of where this Variable is in list
-   if already in list, do not add, just return index, else add to list
-------------------------------------------------------------------------- */
-
-int DumpVTK::add_vtk_variable(const char *id)
-{
-  int ivariable;
-  for (ivariable = 0; ivariable < nvariable; ivariable++)
-    if (strcmp(id,id_variable[ivariable]) == 0) break;
-  if (ivariable < nvariable) return ivariable;
-
-  id_variable = (char **)
-    memory->srealloc(id_variable,(nvariable+1)*sizeof(char *),
-                     "dump:id_variable");
-  delete[] variable;
-  variable = new int[nvariable+1];
-  delete[] vbuf;
-  vbuf = new double*[nvariable+1];
-  for (int i = 0; i <= nvariable; i++) vbuf[i] = nullptr;
-
-  id_variable[nvariable] = utils::strdup(id);
-  nvariable++;
-  return nvariable-1;
-}
-
-/* ----------------------------------------------------------------------
-   add custom atom property to list used by dump
-   return index of where this property is in Atom class custom lists
-   if already in list, do not add, just return index, else add to list
-------------------------------------------------------------------------- */
-
-int DumpVTK::add_vtk_custom(const char *id, int flag)
-{
-  int icustom;
-  for (icustom = 0; icustom < ncustom; icustom++)
-    if (strcmp(id,id_custom[icustom]) == 0) break;
-  if (icustom < ncustom) return icustom;
-
-  id_custom = (char **) memory->srealloc(id_custom,(ncustom+1)*sizeof(char *),"dump:id_custom");
-  custom = (int *) memory->srealloc(custom,(ncustom+1)*sizeof(int),"dump:custom");
-  custom_flag = (int *) memory->srealloc(custom_flag,(ncustom+1)*sizeof(int),"dump:custom_flag");
-
-  id_custom[ncustom] = utils::strdup(id);
-  custom_flag[ncustom] = flag;
-  ncustom++;
-
-  return ncustom-1;
-}
-
-/* ---------------------------------------------------------------------- */
 int DumpVTK::modify_param(int narg, char **arg)
 {
   if (strcmp(arg[0],"region") == 0) {
