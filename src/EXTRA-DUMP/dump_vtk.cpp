@@ -1187,14 +1187,12 @@ void DumpVTK::write_xml_snapshot(int n, double *mybuf, bool unstructured)
 
 std::string DumpVTK::pvtk_piece_filename(int id)
 {
-  char *ptr = strchr(filename,'%');
-  std::string fname = std::string(filename, ptr-filename) + "_" + std::to_string(id) + (ptr+1);
+  std::string fname = percent_subst(filename, fmt::format("_{}", id));
   if (multifile) fname = utils::star_subst(fname, update->ntimestep, padflag);
 
   // strip the leading directory so the reference is relative to the summary file
-  auto pos = fname.find_last_of("/\\");
-  if (pos != std::string::npos) fname = fname.substr(pos+1);
-  return fname;
+
+  return platform::path_basename(fname);
 }
 
 /* ----------------------------------------------------------------------
