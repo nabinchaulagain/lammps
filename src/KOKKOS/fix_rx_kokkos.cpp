@@ -1477,9 +1477,8 @@ void FixRxKokkos<DeviceType>::solve_reactions(const int /*vflag*/, const bool is
 
   // Warn the user if a failure was detected in the ODE solver.
   if (TotalCounters.nFails > 0) {
-    char sbuf[128];
-    sprintf(sbuf,"in FixRX::pre_force, ODE solver failed for %d atoms.", TotalCounters.nFails);
-    error->warning(FLERR, sbuf);
+    error->warning(FLERR, "in FixRX::pre_force, ODE solver failed for {} atoms.",
+                   TotalCounters.nFails);
   }
 
   // Compute and report ODE diagnostics, if requested.
