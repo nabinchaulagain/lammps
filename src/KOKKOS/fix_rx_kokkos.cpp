@@ -143,10 +143,9 @@ void FixRxKokkos<DeviceType>::init()
   if (pairDPDEKK == nullptr)
     error->all(FLERR, Error::NOLASTLINE, "Must use pair_style dpd/fdt/energy/kk with fix rx/kk");
 
-  bool eos_flag = false;
-  for (int i = 0; i < modify->nfix; i++)
-    if (utils::strmatch(modify->fix[i]->style,"^eos/table/rx")) eos_flag = true;
-  if (!eos_flag) error->all(FLERR,"fix rx requires fix eos/table/rx to be specified");
+  auto fixes = modify->get_fix_by_style("^eos/table/rx");
+  if (!fixes.size())
+    error->all(FLERR, Error::NOLASTLINE, "fix rx requires fix eos/table/rx to be specified");
 
   if (update_kinetics_data)
     create_kinetics_data();
