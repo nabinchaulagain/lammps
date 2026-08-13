@@ -51,15 +51,6 @@ enum{LUCY};
 
 /* ---------------------------------------------------------------------- */
 
-namespace /* anonymous */
-{
-
-typedef double TimerType;
-TimerType getTimeStamp() { return platform::walltime(); }
-double getElapsedTime( const TimerType &t0, const TimerType &t1) { return t1-t0; }
-
-} // end namespace
-
 template <typename DeviceType>
 FixRxKokkos<DeviceType>::FixRxKokkos(LAMMPS *lmp, int narg, char **arg) :
   FixRX(lmp, narg, arg),
@@ -1457,7 +1448,7 @@ void FixRxKokkos<DeviceType>::solve_reactions(const int /*vflag*/, const bool is
 #undef _template_switch
   }
 
-  TimerType timer_localTemperature = getTimeStamp();
+  double timer_localTemperature = platform::walltime();
 
   // Total counters from the ODE solvers.
   CounterType TotalCounters;
@@ -1516,7 +1507,7 @@ void FixRxKokkos<DeviceType>::solve_reactions(const int /*vflag*/, const bool is
   else
     Kokkos::parallel_reduce( Kokkos::RangePolicy<DeviceType, Tag_FixRxKokkos_solveSystems<false> >(0,nlocal), *this, TotalCounters);
 
-  TimerType timer_ODE = getTimeStamp();
+  double time_ODE =  platform::walltime() - timer_localTemperature;
 
   // Check the error flag for any failures.
   k_error_flag.template modify<DeviceType>();
@@ -1534,7 +1525,6 @@ void FixRxKokkos<DeviceType>::solve_reactions(const int /*vflag*/, const bool is
 
   atomKK->modified(Host, DVECTOR_MASK);
 
-  double time_ODE = getElapsedTime(timer_localTemperature, timer_ODE);
 
   // Warn the user if a failure was detected in the ODE solver.
   if (TotalCounters.nFails > 0) {
