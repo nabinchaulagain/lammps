@@ -39,7 +39,7 @@ using namespace FixConst;
 
 template<class DeviceType>
 FixEOStableRXKokkos<DeviceType>::FixEOStableRXKokkos(LAMMPS *lmp, int narg, char **arg) :
-  FixEOStableRX(lmp, narg, arg)
+  FixEOStableRX(lmp, narg, arg), rx_fixKK(nullptr)
 {
   kokkosable = 1;
 
