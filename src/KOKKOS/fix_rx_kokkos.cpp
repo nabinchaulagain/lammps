@@ -51,15 +51,6 @@ enum{LUCY};
 
 /* ---------------------------------------------------------------------- */
 
-namespace /* anonymous */
-{
-
-typedef double TimerType;
-TimerType getTimeStamp() { return platform::walltime(); }
-double getElapsedTime( const TimerType &t0, const TimerType &t1) { return t1-t0; }
-
-} // end namespace
-
 template <typename DeviceType>
 FixRxKokkos<DeviceType>::FixRxKokkos(LAMMPS *lmp, int narg, char **arg) :
   FixRX(lmp, narg, arg),
@@ -1566,7 +1557,7 @@ void FixRxKokkos<DeviceType>::solve_reactions(const int /*vflag*/, const bool is
 template <typename DeviceType>
 void FixRxKokkos<DeviceType>::odeDiagnostics()
 {
-  TimerType timer_start = getTimeStamp();
+  double timer_start = platform::walltime();
 
   // Compute:
   // 1) Average # of ODE integrator steps and RHS evaluations per atom globally.
@@ -1680,8 +1671,7 @@ void FixRxKokkos<DeviceType>::odeDiagnostics()
   else
     MPI_Reduce(my_sum_sq, sum_sq, numCounters, MPI_DOUBLE, MPI_SUM, 0, world);
 
-  TimerType timer_stop = getTimeStamp();
-  double time_local = getElapsedTime( timer_start, timer_stop );
+  double time_local = platform::walltime() - timer_start;
 
   if (comm->me == 0) {
     char smesg[128];
