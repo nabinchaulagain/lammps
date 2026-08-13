@@ -76,18 +76,6 @@ FixRxKokkos<DeviceType>::FixRxKokkos(LAMMPS *lmp, int narg, char **arg) :
 }
 
 template <typename DeviceType>
-FixRxKokkos<DeviceType>*
-FixRxKokkos<DeviceType>::get_rx_fixKK_from_fix_unsafe(Fix * fix) {
-  return dynamic_cast<FixRxKokkos<DeviceType>*>(fix);
-}
-
-template <typename DeviceType>
-FixRxKokkos<DeviceType>*
-FixRxKokkos<DeviceType>::get_rx_fixKK_from_rx_fix_unsafe(FixRX * rx_fix) {
-  return get_rx_fixKK_from_fix_unsafe(rx_fix);
-}
-
-template <typename DeviceType>
 FixRxKokkos<DeviceType>::~FixRxKokkos()
 {
   if (copymode) return;

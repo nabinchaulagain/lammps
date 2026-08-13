@@ -77,7 +77,6 @@ class FixRxKokkos : public FixRX {
   void post_constructor() override;
   void setup_pre_force(int) override;
   void pre_force(int) override;
-  static FixRxKokkos* get_rx_fixKK_from_rx_fix_unsafe(FixRX *);
 
   const DAT::tdual_int_1d & get_k_species_ind_to_atom_prop_ind() const;
   const DAT::tdual_int_1d & get_k_species_ind_to_atom_prop_ind_old() const;
@@ -119,7 +118,6 @@ class FixRxKokkos : public FixRX {
     k_species_ind_to_atom_prop_ind_old;
 
   void allocate_species_ind_to_atom_prop_ind_array() override;
-  static FixRxKokkos* get_rx_fixKK_from_fix_unsafe(Fix *);
 
   template <typename T, int stride = 1>
   struct StridedArrayType
