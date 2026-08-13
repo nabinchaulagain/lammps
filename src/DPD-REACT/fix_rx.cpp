@@ -414,9 +414,9 @@ void FixRX::initSparse()
       }
     }
 
-    mxreac = std::max( mxreac, nreac_i );
-    mxprod = std::max( mxprod, nprod_i );
-    mxspec = std::max( mxspec, nreac_i + nprod_i );
+    mxreac = std::max(mxreac, nreac_i);
+    mxprod = std::max(mxprod, nprod_i);
+    mxspec = std::max(mxspec, nreac_i + nprod_i);
   }
 
   // Allocate the sparse matrix data.
@@ -514,12 +514,11 @@ void FixRX::init()
     pairDPDE = dynamic_cast<PairDPDfdtEnergy *>(force->pair_match("dpd/fdt/energy/kk",1));
 
   if (pairDPDE == nullptr)
-    error->all(FLERR,"Must use pair_style dpd/fdt/energy with fix rx");
+    error->all(FLERR, Error::NOLASTLINE, "Must use pair_style dpd/fdt/energy with fix rx");
 
-  bool eos_flag = false;
-  for (int i = 0; i < modify->nfix; i++)
-    if (strcmp(modify->fix[i]->style,"eos/table/rx") == 0) eos_flag = true;
-  if (!eos_flag) error->all(FLERR,"fix rx requires fix eos/table/rx to be specified");
+  auto fixes = modify->get_fix_by_style("^eos/table/rx");
+  if (!fixes.size())
+    error->all(FLERR, Error::NOLASTLINE, "fix rx requires fix eos/table/rx to be specified");
 
   // need a half neighbor list
   // built whenever re-neighboring occurs
@@ -665,7 +664,7 @@ void FixRX::pre_force(int /*vflag*/)
 
   } // end parallel region
 
-  double time_ODE = timer_localTemperature - platform::walltime();
+  double time_ODE =  platform::walltime() - timer_localTemperature;
 
   // Communicate the updated momenta and velocities to all nodes
   comm->forward_comm(this);
@@ -1142,7 +1141,7 @@ void FixRX::odeDiagnostics()
         const int *mask = atom->mask;
 
         if (odeIntegrationFlag == ODE_LAMMPS_RKF45 && diagnosticFrequency == 1) {
-          const double total_time = oldTimeStamp - now;
+          const double total_time = now - oldTimeStamp;
           const double fixrx_time = this->diagnosticCounter[TimeSum];
 
           double tmin = 100000, tmax = 0;
