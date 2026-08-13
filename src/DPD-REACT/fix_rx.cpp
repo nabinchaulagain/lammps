@@ -394,24 +394,9 @@ void FixRX::initSparse()
   int mxspec = 0;
   for (int i = 0; i < nreactions; ++i) {
     int nreac_i = 0, nprod_i = 0;
-    std::string pstr, rstr;
     for (int k = 0; k < nspecies; ++k) {
-      const auto atom_ind = species_ind_to_atom_prop_ind[k];
-
-      if (stoichReactants[i][k] > 0.0) {
-        nreac_i++;
-        if (rstr.length() > 0) rstr += " + ";
-
-        rstr += fmt::format("{:4.1f}", stoichReactants[i][k]);
-        rstr += atom->dvname[atom_ind];
-      }
-      if (stoichProducts[i][k] > 0.0) {
-        nprod_i++;
-        if (pstr.length() > 0) pstr += " + ";
-
-        pstr += fmt::format("{:4.1f}", stoichProducts[i][k]);
-        pstr += atom->dvname[atom_ind];
-      }
+      if (stoichReactants[i][k] > 0.0) nreac_i++;
+      if (stoichProducts[i][k] > 0.0) nprod_i++;
     }
 
     mxreac = std::max(mxreac, nreac_i);
