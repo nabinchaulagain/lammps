@@ -295,17 +295,6 @@ void NeighRequest::apply_flags(int flags)
 // _cutoff is the MAXIMUM cutoff across atom types, individual type pairs may
 //   use a shorter cutoff.  This is the usual case for pair styles
 
-void NeighRequest::set_cutoff(double _cutoff)
-{
-  cut = 1;
-  cutoff = _cutoff;
-}
-
-void NeighRequest::set_cut_fixed(int flag)
-{
-  cut_fixed = flag;
-}
-
 void NeighRequest::set_cutoff_max(double _cutoff)
 {
   cut = 1;
