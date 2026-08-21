@@ -287,6 +287,14 @@ void NeighRequest::apply_flags(int flags)
 
 /* ---------------------------------------------------------------------- */
 
+// a requestor with a non-standard cutoff must state how to interpret it,
+//   by calling exactly one of the two methods below
+//   there is deliberately no plain set_cutoff(): the interpretation cannot be
+//   guessed, and getting it wrong silently truncates the list for some type pairs
+
+// _cutoff is the MAXIMUM cutoff across atom types, individual type pairs may
+//   use a shorter cutoff.  This is the usual case for pair styles
+
 void NeighRequest::set_cutoff(double _cutoff)
 {
   cut = 1;
@@ -296,6 +304,22 @@ void NeighRequest::set_cutoff(double _cutoff)
 void NeighRequest::set_cut_fixed(int flag)
 {
   cut_fixed = flag;
+}
+
+void NeighRequest::set_cutoff_max(double _cutoff)
+{
+  cut = 1;
+  cutoff = _cutoff;
+}
+
+// _cutoff applies UNIFORMLY to every atom type pair.  This is the usual case
+//   for fixes/computes analyzing a fixed range (e.g. an RDF)
+
+void NeighRequest::set_cutoff_fixed(double _cutoff)
+{
+  cut = 1;
+  cutoff = _cutoff;
+  cut_fixed = 1;
 }
 
 void NeighRequest::set_id(int _id)
