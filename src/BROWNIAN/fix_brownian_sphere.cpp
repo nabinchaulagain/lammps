@@ -247,26 +247,10 @@ void FixBrownianSphere::initial_integrate_templated()
         // --- Rotational update: Geometric integrator for 3D angular motion ----
         // For Tp_2D and Tp_2Drot, we currently use two separate projection placeholders
 
-        if (Tp_2D) {
+        if (Tp_2D || Tp_2Drot) {
 
-          // 2D case: Projection integrator placeholder
-
-          // un-normalised unit vector at time t + dt
-          mu[i][0] = mux + (wy * muz - wz * muy) * dt;
-          mu[i][1] = muy + (wz * mux - wx * muz) * dt;
-          mu[i][2] = muz + (wx * muy - wy * mux) * dt;
-
-          // normalize unit vector
-          MathExtra::norm3(mu[i]);
-
-          // multiply by original magnitude to obtain dipole of same length
-          mu[i][0] = mu[i][0] * mulen;
-          mu[i][1] = mu[i][1] * mulen;
-          mu[i][2] = mu[i][2] * mulen;
-
-        } else if (Tp_2Drot) {
-
-          // planar (2D) rotation case: Projection integrator placeholder
+          // 2D and planar rotation cases: Projection integrator placeholder
+          // Shared logic for both cases as the mathematical operation is identical
 
           // un-normalised unit vector at time t + dt
           mu[i][0] = mux + (wy * muz - wz * muy) * dt;
@@ -327,13 +311,13 @@ void FixBrownianSphere::initial_integrate_templated()
             double c = cos(theta);
             double s = sin(theta);
 
-            // cross-product u × n = (cx, cy, cz)
+            // cross-product u \u00d7 n = (cx, cy, cz)
             double cx = muy * nz - muz * ny;
             double cy = muz * nx - mux * nz;
             double cz = mux * ny - muy * nx;
 
             // by construction, n is perpendicular to u, dot(n, u) = 0 and
-            // u_new = cos(theta) u - sin(theta) (u × n)
+            // u_new = cos(theta) u - sin(theta) (u \u00d7 n)
             mu[i][0] = c * mux - s * cx;
             mu[i][1] = c * muy - s * cy;
             mu[i][2] = c * muz - s * cz;
