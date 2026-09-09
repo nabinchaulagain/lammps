@@ -153,34 +153,19 @@ ComputePropertyAtom::ComputePropertyAtom(LAMMPS *lmp, int narg, char **arg) :
 
     // pack magnetic variables
 
-    } else if (strcmp(arg[iarg],"spx") == 0) {
+    } else if (strcmp(arg[iarg],"spx") == 0 || strcmp(arg[iarg],"spy") == 0 ||
+               strcmp(arg[iarg],"spz") == 0 || strcmp(arg[iarg],"sp") == 0 ||
+               strcmp(arg[iarg],"fmx") == 0 || strcmp(arg[iarg],"fmy") == 0 ||
+               strcmp(arg[iarg],"fmz") == 0) {
       if (!atom->sp_flag)
         error->all(FLERR,"Compute property/atom {} is not available", arg[iarg]);
-      pack_choice[i] = &ComputePropertyAtom::pack_spx;
-    } else if (strcmp(arg[iarg],"spy") == 0) {
-      if (!atom->sp_flag)
-        error->all(FLERR,"Compute property/atom {} is not available", arg[iarg]);
-      pack_choice[i] = &ComputePropertyAtom::pack_spy;
-    } else if (strcmp(arg[iarg],"spz") == 0) {
-      if (!atom->sp_flag)
-        error->all(FLERR,"Compute property/atom {} is not available", arg[iarg]);
-      pack_choice[i] = &ComputePropertyAtom::pack_spz;
-    } else if (strcmp(arg[iarg],"sp") == 0) {
-      if (!atom->sp_flag)
-        error->all(FLERR,"Compute property/atom {} is not available", arg[iarg]);
-      pack_choice[i] = &ComputePropertyAtom::pack_sp;
-    } else if (strcmp(arg[iarg],"fmx") == 0) {
-      if (!atom->sp_flag)
-        error->all(FLERR,"Compute property/atom {} is not available", arg[iarg]);
-      pack_choice[i] = &ComputePropertyAtom::pack_fmx;
-    } else if (strcmp(arg[iarg],"fmy") == 0) {
-      if (!atom->sp_flag)
-        error->all(FLERR,"Compute property/atom {} is not available", arg[iarg]);
-      pack_choice[i] = &ComputePropertyAtom::pack_fmy;
-    } else if (strcmp(arg[iarg],"fmz") == 0) {
-      if (!atom->sp_flag)
-        error->all(FLERR,"Compute property/atom {} is not available", arg[iarg]);
-      pack_choice[i] = &ComputePropertyAtom::pack_fmz;
+      if (strcmp(arg[iarg],"spx") == 0) pack_choice[i] = &ComputePropertyAtom::pack_spx;
+      else if (strcmp(arg[iarg],"spy") == 0) pack_choice[i] = &ComputePropertyAtom::pack_spy;
+      else if (strcmp(arg[iarg],"spz") == 0) pack_choice[i] = &ComputePropertyAtom::pack_spz;
+      else if (strcmp(arg[iarg],"sp") == 0) pack_choice[i] = &ComputePropertyAtom::pack_sp;
+      else if (strcmp(arg[iarg],"fmx") == 0) pack_choice[i] = &ComputePropertyAtom::pack_fmx;
+      else if (strcmp(arg[iarg],"fmy") == 0) pack_choice[i] = &ComputePropertyAtom::pack_fmy;
+      else if (strcmp(arg[iarg],"fmz") == 0) pack_choice[i] = &ComputePropertyAtom::pack_fmz;
 
     // bond count
 
