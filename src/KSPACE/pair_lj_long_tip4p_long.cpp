@@ -72,6 +72,42 @@ PairLJLongTIP4PLong::~PairLJLongTIP4PLong()
 
 /* ---------------------------------------------------------------------- */
 
+// Helper method to get TIP4P charge site for an oxygen atom
+// Returns pointer to newsite[idx] if idx is typeO, otherwise x[idx]
+// Handles hydrogen lookup, validation, closest image computation, and caching
+
+double *PairLJLongTIP4PLong::get_tip4p_site(int idx, double **x, int *type,
+                                            tagint *tag, int &h1, int &h2)
+{
+  if (type[idx] != typeO) return x[idx];
+
+  if (hneigh[idx][0] < 0) {
+    h1 = atom->map(tag[idx] + 1);
+    h2 = atom->map(tag[idx] + 2);
+    if (h1 == -1 || h2 == -1)
+      error->one(FLERR,"TIP4P hydrogen is missing");
+    if (type[h1] != typeH || type[h2] != typeH)
+      error->one(FLERR,"TIP4P hydrogen has incorrect atom type");
+    // set h1,h2 to closest image to O
+    h1 = domain->closest_image(idx,h1);
+    h2 = domain->closest_image(idx,h2);
+    compute_newsite(x[idx],x[h1],x[h2],newsite[idx]);
+    hneigh[idx][0] = h1;
+    hneigh[idx][1] = h2;
+    hneigh[idx][2] = 1;
+  } else {
+    h1 = hneigh[idx][0];
+    h2 = hneigh[idx][1];
+    if (hneigh[idx][2] == 0) {
+      hneigh[idx][2] = 1;
+      compute_newsite(x[idx],x[h1],x[h2],newsite[idx]);
+    }
+  }
+  return newsite[idx];
+}
+
+/* ---------------------------------------------------------------------- */
+
 void PairLJLongTIP4PLong::compute(int eflag, int vflag)
 {
   int i,j,ii,jj,inum,jnum,itype,jtype,itable;
@@ -139,31 +175,7 @@ void PairLJLongTIP4PLong::compute(int eflag, int vflag)
     ytmp = x[i][1];
     ztmp = x[i][2];
     itype = type[i];
-    if (itype == typeO) {
-      if (hneigh[i][0] < 0) {
-        iH1 = atom->map(tag[i] + 1);
-        iH2 = atom->map(tag[i] + 2);
-        if (iH1 == -1 || iH2 == -1)
-          error->one(FLERR,"TIP4P hydrogen is missing");
-        if (atom->type[iH1] != typeH || atom->type[iH2] != typeH)
-          error->one(FLERR,"TIP4P hydrogen has incorrect atom type");
-        // set iH1,iH2 to closest image to O
-        iH1 = domain->closest_image(i,iH1);
-        iH2 = domain->closest_image(i,iH2);
-        compute_newsite(x[i],x[iH1],x[iH2],newsite[i]);
-        hneigh[i][0] = iH1;
-        hneigh[i][1] = iH2;
-        hneigh[i][2] = 1;
-      } else {
-        iH1 = hneigh[i][0];
-        iH2 = hneigh[i][1];
-        if (hneigh[i][2] == 0) {
-          hneigh[i][2] = 1;
-          compute_newsite(x[i],x[iH1],x[iH2],newsite[i]);
-        }
-      }
-      x1 = newsite[i];
-    } else x1 = x[i];
+    x1 = get_tip4p_site(i, x, type, tag, iH1, iH2);
 
     jlist = firstneigh[i];
     jnum = numneigh[i];

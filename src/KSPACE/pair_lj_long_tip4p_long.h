@@ -53,6 +53,11 @@ class PairLJLongTIP4PLong : public PairLJLongCoulLong {
   double **newsite;    // locations of charge sites
 
   void compute_newsite(double *, double *, double *, double *);
+
+  // Helper method to get TIP4P charge site for an oxygen atom
+  // Returns pointer to newsite[idx] if idx is typeO, otherwise x[idx]
+  // Handles hydrogen lookup, validation, closest image computation, and caching
+  double *get_tip4p_site(int idx, double **x, int *type, tagint *tag, int &h1, int &h2);
 };
 
 }    // namespace LAMMPS_NS
