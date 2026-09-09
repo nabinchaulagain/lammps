@@ -475,11 +475,7 @@ void Variable::set(int narg, char **arg)
     if (narg < 3) utils::missing_cmd_args(FLERR, "variable equal", error);
 
     // combine excess arguments into single string with a blank as separator
-    std::string combined = arg[2];
-    for (int iarg = 3; iarg < narg; ++iarg) {
-      combined += ' ';
-      combined += arg[iarg];
-    }
+    std::string combined = combine_args(2, narg, arg);
 
     if (ivar >= 0) {
       if (style[ivar] != EQUAL)
@@ -509,11 +505,7 @@ void Variable::set(int narg, char **arg)
     if (narg < 3) utils::missing_cmd_args(FLERR, "variable atom", error);
 
     // combine excess arguments into single string with a blank as separator
-    std::string combined = arg[2];
-    for (int iarg = 3; iarg < narg; ++iarg) {
-      combined += ' ';
-      combined += arg[iarg];
-    }
+    std::string combined = combine_args(2, narg, arg);
 
     if (ivar >= 0) {
       if (style[ivar] != ATOM)
@@ -543,11 +535,7 @@ void Variable::set(int narg, char **arg)
     if (narg < 3) utils::missing_cmd_args(FLERR, "variable atom", error);
 
     // combine excess arguments into single string with a blank as separator
-    std::string combined = arg[2];
-    for (int iarg = 3; iarg < narg; ++iarg) {
-      combined += ' ';
-      combined += arg[iarg];
-    }
+    std::string combined = combine_args(2, narg, arg);
 
     if (ivar >= 0) {
       if (style[ivar] != VECTOR)
@@ -1447,6 +1435,20 @@ void Variable::copy(int narg, char **from, char **to)
 {
   for (int i = 0; i < narg; i++)
     to[i] = utils::strdup(from[i]);
+}
+
+/* ----------------------------------------------------------------------
+   combine arguments from start_idx to narg-1 into a single string with spaces
+ ------------------------------------------------------------------------- */
+
+std::string Variable::combine_args(int start_idx, int narg, char **arg)
+{
+  std::string combined = arg[start_idx];
+  for (int iarg = start_idx + 1; iarg < narg; ++iarg) {
+    combined += ' ';
+    combined += arg[iarg];
+  }
+  return combined;
 }
 
 /* ----------------------------------------------------------------------
