@@ -1595,33 +1595,8 @@ void FixBondReact::check_a_neighbor(Superimpose &super, Reaction &rxn)
         if (compare_atomtype(checktype, rxn, reactant_atom) &&
             nxspecial[(int)atom->map(xspecial[(int)atom->map(sp.glove[sp.pion])][i])][0] == 1) {
 
-          int already_assigned = 0;
-          for (int j = 0; j < rxn.reactant->natoms; j++) {
-            if (sp.glove[j] == xspecial[atom->map(sp.glove[sp.pion])][i]) {
-              already_assigned = 1;
-              break;
-            }
-          }
-
-          if (already_assigned == 0) {
-            sp.glove[(int)rxn.reactant->special[sp.pion][sp.neigh]-1] = xspecial[(int)atom->map(sp.glove[sp.pion])][i];
-
-            //another check for ghost atoms. perhaps remove the one in make_a_guess
-            if (atom->map(sp.glove[(int)rxn.reactant->special[sp.pion][sp.neigh]-1]) < 0) {
-              error->one(FLERR,"Fix bond/react: Fix bond/react needs ghost atoms from further away");
-            }
-
-            for (int j = 0; j < rxn.reactant->nspecial[rxn.reactant->special[sp.pion][sp.neigh]-1][0]; j++) {
-              sp.pioneer_count[rxn.reactant->special[rxn.reactant->special[sp.pion][sp.neigh]-1][j]-1]++;
-            }
-
-            sp.glove_counter++;
-            if (sp.glove_counter == rxn.reactant->natoms) {
-              if (ring_check(rxn, sp.glove) && check_constraints(rxn, sp.glove)) status = Status::ACCEPT;
-              else status = Status::GUESSFAIL;
-              return;
-            }
-            // status should still == PROCEED
+          tagint sim_atom_id = xspecial[atom->map(sp.glove[sp.pion])][i];
+          if (assign_atom_to_glove(super, rxn, sim_atom_id)) {
             return;
           }
         }
@@ -1646,37 +1621,8 @@ void FixBondReact::check_a_neighbor(Superimpose &super, Reaction &rxn)
     int checktype = type[atom->map((int)xspecial[(int)atom->map(sp.glove[sp.pion])][i])];
     int reactant_atom = (int) rxn.reactant->special[sp.pion][sp.neigh];
     if (compare_atomtype(checktype, rxn, reactant_atom)) {
-      int already_assigned = 0;
-
-      //check if a first neighbor of the pioneer is already assigned to pre-reacted template
-      for (int j = 0; j < rxn.reactant->natoms; j++) {
-        if (sp.glove[j] == xspecial[atom->map(sp.glove[sp.pion])][i]) {
-          already_assigned = 1;
-          break;
-        }
-      }
-
-      if (already_assigned == 0) {
-        sp.glove[(int)rxn.reactant->special[sp.pion][sp.neigh]-1] = xspecial[(int)atom->map(sp.glove[sp.pion])][i];
-
-        //another check for ghost atoms. perhaps remove the one in make_a_guess
-        if (atom->map(sp.glove[(int)rxn.reactant->special[sp.pion][sp.neigh]-1]) < 0) {
-          error->one(FLERR,"Fix bond/react: Fix bond/react needs ghost atoms from further away");
-        }
-
-        for (int ii = 0; ii < rxn.reactant->nspecial[rxn.reactant->special[sp.pion][sp.neigh]-1][0]; ii++) {
-          sp.pioneer_count[rxn.reactant->special[rxn.reactant->special[sp.pion][sp.neigh]-1][ii]-1]++;
-        }
-
-        sp.glove_counter++;
-        if (sp.glove_counter == rxn.reactant->natoms) {
-          if (ring_check(rxn, sp.glove) && check_constraints(rxn, sp.glove)) status = Status::ACCEPT;
-          else status = Status::GUESSFAIL;
-          return;
-          // will never complete here when there are edge atoms
-          // ...actually that could be wrong if people get creative...shouldn't affect anything
-        }
-        // status should still = PROCEED
+      tagint sim_atom_id = xspecial[atom->map(sp.glove[sp.pion])][i];
+      if (assign_atom_to_glove(super, rxn, sim_atom_id)) {
         return;
       }
     }
@@ -4853,4 +4799,48 @@ for (int i = 0; i < atom->nlocal; i++) {
   // printf("\n");
 }
 #endif
+}
+
+/* ----------------------------------------------------------------------
+  Assign a simulation atom to the glove (reaction template mapping).
+  Returns true if assignment was successful and check_a_neighbor should return,
+  false otherwise.
+ ------------------------------------------------------------------------- */
+
+bool FixBondReact::assign_atom_to_glove(Superimpose &super, Reaction &rxn,
+                                        tagint sim_atom_id)
+{
+  Superimpose::StatePoint &sp = super.sp;
+
+  // check if atom is already assigned
+  for (int j = 0; j < rxn.reactant->natoms; j++) {
+    if (sp.glove[j] == sim_atom_id) {
+      return false;
+    }
+  }
+
+  // assign the simulation atom to the reactant atom position
+  sp.glove[(int)rxn.reactant->special[sp.pion][sp.neigh]-1] = sim_atom_id;
+
+  // ghost atom validation check
+  if (atom->map(sp.glove[(int)rxn.reactant->special[sp.pion][sp.neigh]-1]) < 0) {
+    error->one(FLERR,"Fix bond/react: Fix bond/react needs ghost atoms from further away");
+  }
+
+  // update pioneer_count array
+  for (int j = 0; j < rxn.reactant->nspecial[rxn.reactant->special[sp.pion][sp.neigh]-1][0]; j++) {
+    sp.pioneer_count[rxn.reactant->special[rxn.reactant->special[sp.pion][sp.neigh]-1][j]-1]++;
+  }
+
+  // increment glove_counter and check for completion
+  sp.glove_counter++;
+  if (sp.glove_counter == rxn.reactant->natoms) {
+    if (ring_check(rxn, sp.glove) && check_constraints(rxn, sp.glove))
+      status = Status::ACCEPT;
+    else
+      status = Status::GUESSFAIL;
+    return true;
+  }
+
+  return true;
 }

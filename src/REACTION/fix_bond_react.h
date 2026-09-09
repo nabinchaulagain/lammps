@@ -211,6 +211,7 @@ class FixBondReact : public Fix {
   void make_a_guess(Superimpose &, Reaction &);
   void neighbor_loop(Superimpose &, Reaction &);
   void check_a_neighbor(Superimpose &, Reaction &);
+  bool assign_atom_to_glove(Superimpose &, Reaction &, tagint sim_atom_id);
   void crosscheck_the_neighbor(Superimpose &, Reaction &);
   void inner_crosscheck_loop(Superimpose &, Reaction &);
   bool compare_atomtype(int, Reaction &, int);
