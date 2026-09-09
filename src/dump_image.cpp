@@ -97,6 +97,21 @@ double radscale(const double *radius, const vec3 &pos)
                pos[2] / radius[2] * pos[2] / radius[2]));
 }
 
+std::vector<triangle> refine_triangles(const std::vector<triangle> &input)
+{
+  std::vector<triangle> output;
+  for (const auto &tri : input) {
+    vec3 posa = vecnorm(vecadd(tri[0], tri[2]));
+    vec3 posb = vecnorm(vecadd(tri[0], tri[1]));
+    vec3 posc = vecnorm(vecadd(tri[1], tri[2]));
+    output.emplace_back(triangle{{tri[0], posb, posa}});
+    output.emplace_back(triangle{{posb, tri[1], posc}});
+    output.emplace_back(triangle{{posa, posb, posc}});
+    output.emplace_back(triangle{{posa, posc, tri[2]}});
+  }
+  return output;
+}
+
 void ellipsoid2wireframe(LAMMPS_NS::Image *img, int level, const double *color, double diameter,
                          const double *center, const double *radius)
 {
@@ -140,15 +155,7 @@ void ellipsoid2wireframe(LAMMPS_NS::Image *img, int level, const double *color, 
   // refine the list of triangles
   std::vector<triangle> trilist2;
   if (level >= 2) {
-    for (const auto &tri : trilist1) {
-      vec3 posa = vecnorm(vecadd(tri[0], tri[2]));
-      vec3 posb = vecnorm(vecadd(tri[0], tri[1]));
-      vec3 posc = vecnorm(vecadd(tri[1], tri[2]));
-      trilist2.emplace_back(triangle{{tri[0], posb, posa}});
-      trilist2.emplace_back(triangle{{posb, tri[1], posc}});
-      trilist2.emplace_back(triangle{{posa, posb, posc}});
-      trilist2.emplace_back(triangle{{posa, posc, tri[2]}});
-    }
+    trilist2 = refine_triangles(trilist1);
 
     if (level == 2) {
       for (auto tri : trilist2) {
@@ -168,15 +175,7 @@ void ellipsoid2wireframe(LAMMPS_NS::Image *img, int level, const double *color, 
   // refine the list of triangles a second time
   std::vector<triangle> trilist3;
   if (level == 3) {
-    for (const auto &tri : trilist2) {
-      vec3 posa = vecnorm(vecadd(tri[0], tri[2]));
-      vec3 posb = vecnorm(vecadd(tri[0], tri[1]));
-      vec3 posc = vecnorm(vecadd(tri[1], tri[2]));
-      trilist3.emplace_back(triangle{{tri[0], posb, posa}});
-      trilist3.emplace_back(triangle{{posb, tri[1], posc}});
-      trilist3.emplace_back(triangle{{posa, posb, posc}});
-      trilist3.emplace_back(triangle{{posa, posc, tri[2]}});
-    }
+    trilist3 = refine_triangles(trilist2);
 
     for (auto tri : trilist3) {
       for (int i = 0; i < 3; ++i) {
@@ -233,15 +232,7 @@ void ellipsoid2filled(LAMMPS_NS::Image *img, int level, const double *color, dou
   // refine the list of triangles
   std::vector<triangle> trilist2;
   if (level >= 2) {
-    for (const auto &tri : trilist1) {
-      vec3 posa = vecnorm(vecadd(tri[0], tri[2]));
-      vec3 posb = vecnorm(vecadd(tri[0], tri[1]));
-      vec3 posc = vecnorm(vecadd(tri[1], tri[2]));
-      trilist2.emplace_back(triangle{{tri[0], posb, posa}});
-      trilist2.emplace_back(triangle{{posb, tri[1], posc}});
-      trilist2.emplace_back(triangle{{posa, posb, posc}});
-      trilist2.emplace_back(triangle{{posa, posc, tri[2]}});
-    }
+    trilist2 = refine_triangles(trilist1);
 
     if (level == 2) {
       for (auto tri : trilist2) {
@@ -259,15 +250,7 @@ void ellipsoid2filled(LAMMPS_NS::Image *img, int level, const double *color, dou
   // refine the list of triangles a second time
   std::vector<triangle> trilist3;
   if (level == 3) {
-    for (const auto &tri : trilist2) {
-      vec3 posa = vecnorm(vecadd(tri[0], tri[2]));
-      vec3 posb = vecnorm(vecadd(tri[0], tri[1]));
-      vec3 posc = vecnorm(vecadd(tri[1], tri[2]));
-      trilist3.emplace_back(triangle{{tri[0], posb, posa}});
-      trilist3.emplace_back(triangle{{posb, tri[1], posc}});
-      trilist3.emplace_back(triangle{{posa, posb, posc}});
-      trilist3.emplace_back(triangle{{posa, posc, tri[2]}});
-    }
+    trilist3 = refine_triangles(trilist2);
 
     for (auto tri : trilist3) {
       for (int i = 0; i < 3; ++i) {
