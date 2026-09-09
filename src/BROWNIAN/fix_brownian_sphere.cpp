@@ -247,26 +247,9 @@ void FixBrownianSphere::initial_integrate_templated()
         // --- Rotational update: Geometric integrator for 3D angular motion ----
         // For Tp_2D and Tp_2Drot, we currently use two separate projection placeholders
 
-        if (Tp_2D) {
+        if (Tp_2D || Tp_2Drot) {
 
-          // 2D case: Projection integrator placeholder
-
-          // un-normalised unit vector at time t + dt
-          mu[i][0] = mux + (wy * muz - wz * muy) * dt;
-          mu[i][1] = muy + (wz * mux - wx * muz) * dt;
-          mu[i][2] = muz + (wx * muy - wy * mux) * dt;
-
-          // normalize unit vector
-          MathExtra::norm3(mu[i]);
-
-          // multiply by original magnitude to obtain dipole of same length
-          mu[i][0] = mu[i][0] * mulen;
-          mu[i][1] = mu[i][1] * mulen;
-          mu[i][2] = mu[i][2] * mulen;
-
-        } else if (Tp_2Drot) {
-
-          // planar (2D) rotation case: Projection integrator placeholder
+          // 2D / planar rotation case: Projection integrator placeholder
 
           // un-normalised unit vector at time t + dt
           mu[i][0] = mux + (wy * muz - wz * muy) * dt;
@@ -344,7 +327,6 @@ void FixBrownianSphere::initial_integrate_templated()
             mu[i][1] *= mulen;
             mu[i][2] *= mulen;
           }
-
         }
 
       } else {
@@ -364,9 +346,7 @@ void FixBrownianSphere::initial_integrate_templated()
         mu[i][0] = mu[i][0] * mulen;
         mu[i][1] = mu[i][1] * mulen;
         mu[i][2] = mu[i][2] * mulen;
-
       }
-
     }
   }
 }
