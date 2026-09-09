@@ -74,6 +74,21 @@ class SafeFilePtr {
   SafeFilePtr(const SafeFilePtr &) = delete;
   SafeFilePtr(SafeFilePtr &&o) noexcept : fp(o.fp), use_pclose(o.use_pclose) { o.fp = nullptr; }
   SafeFilePtr &operator=(const SafeFilePtr &) = delete;
+  SafeFilePtr &operator=(SafeFilePtr &&o) noexcept
+  {
+    if (this != &o) {
+      if (fp && (fp != o.fp)) {
+        if (use_pclose)
+          platform::pclose(fp);
+        else
+          fclose(fp);
+      }
+      fp = o.fp;
+      use_pclose = o.use_pclose;
+      o.fp = nullptr;
+    }
+    return *this;
+  }
 
   ~SafeFilePtr()
   {
