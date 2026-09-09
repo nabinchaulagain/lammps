@@ -127,13 +127,13 @@ inline void set_complex_linear(FFT_SCALAR *data, int linear_idx,
 class FFTBuffer {
 public:
     FFTBuffer(int nfast, int nmid, int nslow) :
-        nfast_(nfast), nmid_(nmid), nslow_(nslow), size_(2 * nfast * nmid * nslow)
+        nfast_(nfast), nmid_(nmid), nslow_(nslow), size_(2 * nfast * nmid * nslow),
+        data_(new FFT_SCALAR[size_])
     {
-        data_ = new FFT_SCALAR[size_];
-        std::fill(data_, data_ + size_, 0.0);
+        std::fill(data_.get(), data_.get() + size_, 0.0);
     }
 
-    ~FFTBuffer() { delete[] data_; }
+    ~FFTBuffer() = default;
 
     // Non-copyable (avoid accidental copies of large arrays)
     FFTBuffer(const FFTBuffer &)            = delete;
@@ -141,47 +141,44 @@ public:
 
     // Movable
     FFTBuffer(FFTBuffer &&other) noexcept :
-        data_(other.data_), nfast_(other.nfast_), nmid_(other.nmid_), nslow_(other.nslow_),
-        size_(other.size_)
+        data_(std::move(other.data_)), nfast_(other.nfast_), nmid_(other.nmid_),
+        nslow_(other.nslow_), size_(other.size_)
     {
-        other.data_ = nullptr;
         other.size_ = 0;
     }
 
     FFTBuffer &operator=(FFTBuffer &&other) noexcept
     {
         if (this != &other) {
-            delete[] data_;
-            data_       = other.data_;
+            data_       = std::move(other.data_);
             nfast_      = other.nfast_;
             nmid_       = other.nmid_;
             nslow_      = other.nslow_;
             size_       = other.size_;
-            other.data_ = nullptr;
             other.size_ = 0;
         }
         return *this;
     }
 
     // Accessors
-    FFT_SCALAR *data() { return data_; }
-    const FFT_SCALAR *data() const { return data_; }
+    FFT_SCALAR *data() { return data_.get(); }
+    const FFT_SCALAR *data() const { return data_.get(); }
     int size() const { return size_; }
     int nfast() const { return nfast_; }
     int nmid() const { return nmid_; }
     int nslow() const { return nslow_; }
 
     // Zero all data
-    void zero() { std::fill(data_, data_ + size_, 0.0); }
+    void zero() { std::fill(data_.get(), data_.get() + size_, 0.0); }
 
     // Copy from another buffer
-    void copy_from(const FFT_SCALAR *src) { std::copy(src, src + size_, data_); }
+    void copy_from(const FFT_SCALAR *src) { std::copy(src, src + size_, data_.get()); }
 
     // Copy to another buffer
-    void copy_to(FFT_SCALAR *dest) const { std::copy(data_, data_ + size_, dest); }
+    void copy_to(FFT_SCALAR *dest) const { std::copy(data_.get(), data_.get() + size_, dest); }
 
 private:
-    FFT_SCALAR *data_;
+    std::unique_ptr<FFT_SCALAR[]> data_;
     int nfast_, nmid_, nslow_;
     int size_;
 };
