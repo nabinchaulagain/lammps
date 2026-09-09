@@ -34,6 +34,7 @@
 #include "pair.h"
 #include "remap_wrap.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 
@@ -1300,23 +1301,33 @@ void PPPMDisp::init_coeffs()
 
       // determine number of used eigenvalues
       //   based on maximum allowed number or cutoff criterion
-      //   sort eigenvalues according to their size with bubble sort
+      //   sort eigenvalues according to their size with std::sort
 
-      double t;
-      for (int i = 0; i < n; i++) {
-        for (int j = 0; j < n-1-i; j++) {
-          if (fabs(A[j][j]) < fabs(A[j+1][j+1])) {
-            t = A[j][j];
-            A[j][j] = A[j+1][j+1];
-            A[j+1][j+1] = t;
-            for (int k = 0; k < n; k++) {
-              t = Q[k][j];
-              Q[k][j] = Q[k][j+1];
-              Q[k][j+1] = t;
-            }
-          }
-        }
-      }
+      std::vector<int> idx(n);
+      for (int i = 0; i < n; i++) idx[i] = i;
+      std::sort(idx.begin(), idx.end(), [&A](int i, int j) {
+        return fabs(A[i][i]) > fabs(A[j][j]);
+      });
+
+      double **A_sorted;
+      memory->create(A_sorted, n, n, "pppm/disp:A_sorted");
+      for (int i = 0; i < n; i++)
+        for (int j = 0; j < n; j++)
+          A_sorted[i][j] = A[idx[i]][idx[j]];
+      for (int i = 0; i < n; i++)
+        for (int j = 0; j < n; j++)
+          A[i][j] = A_sorted[i][j];
+      memory->destroy(A_sorted);
+
+      double **Q_sorted;
+      memory->create(Q_sorted, n, n, "pppm/disp:Q_sorted");
+      for (int i = 0; i < n; i++)
+        for (int j = 0; j < n; j++)
+          Q_sorted[i][j] = Q[i][idx[j]];
+      for (int i = 0; i < n; i++)
+        for (int j = 0; j < n; j++)
+          Q[i][j] = Q_sorted[i][j];
+      memory->destroy(Q_sorted);
 
       // check which eigenvalue is the first that is smaller than a specified tolerance
       // check how many are maximum allowed by the user
