@@ -826,12 +826,7 @@ void BondBPMRotational::dem_damping_forces(int i1, int i2, int type, double *r,
 
 void BondBPMRotational::compute(int eflag, int vflag)
 {
-  if (!fix_bond_history->stored_flag) {
-    fix_bond_history->stored_flag = true;
-    store_data();
-  }
-
-  if (hybrid_flag) fix_bond_history->compress_history();
+  pre_compute();
 
   int i1, i2, itmp, n, type;
   double ri_norm, ebond, breaking, smooth;
@@ -876,11 +871,11 @@ void BondBPMRotational::compute(int eflag, int vflag)
     MathExtra::sub3(x[i2], x[i1], rf);
 
     if (frame_style == AVERAGE) {
-      breaking = average_frame_forces(i1, i2, type, ri, rf,
-                                  force1on2, torque1on2, torque2on1, ebond, bondstore[n]);
+      breaking = average_frame_forces(i1, i2, type, ri, rf, force1on2, torque1on2, torque2on1,
+                                      ebond, bondstore[n]);
     } else {
-      breaking = particle_frame_forces(i1, i2, type, ri, rf,
-                                force1on2, torque1on2, torque2on1, ebond, bondstore[n]);
+      breaking = particle_frame_forces(i1, i2, type, ri, rf, force1on2, torque1on2, torque2on1,
+                                       ebond, bondstore[n]);
     }
 
     if (damping_style == DEM)
@@ -924,11 +919,11 @@ void BondBPMRotational::compute(int eflag, int vflag)
     }
 
     if (evflag)
-      ev_tally_xyz(i1, i2, nlocal, newton_bond, ebond, -force1on2[0], -force1on2[1],
-                   -force1on2[2], rf[0], rf[1], rf[2]);
+      ev_tally_xyz(i1, i2, nlocal, newton_bond, ebond, -force1on2[0], -force1on2[1], -force1on2[2],
+                   rf[0], rf[1], rf[2]);
   }
 
-  if (hybrid_flag) fix_bond_history->uncompress_history();
+  post_compute();
 }
 
 /* ---------------------------------------------------------------------- */
