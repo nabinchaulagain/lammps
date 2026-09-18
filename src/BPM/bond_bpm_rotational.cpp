@@ -120,6 +120,8 @@ BondBPMRotational::BondBPMRotational(LAMMPS *_lmp) :
   damping_style = DERIVATIVE;
 
   update_flag = 1;
+  // History: [0]=ri_mag, [1-3]=ri_hat
+  //  if derivative damping: [4]=gamma, [5]=theta, [6]=psi
   nhistory = 7;
   id_fix_bond_history = utils::strdup("HISTORY_BPM_ROTATIONAL");
 
@@ -869,11 +871,11 @@ void BondBPMRotational::compute(int eflag, int vflag)
     MathExtra::sub3(x[i2], x[i1], rf);
 
     if (frame_style == AVERAGE) {
-      breaking = average_frame_forces(i1, i2, type, ri, rf,
-                                  force1on2, torque1on2, torque2on1, ebond, bondstore[n]);
+      breaking = average_frame_forces(i1, i2, type, ri, rf, force1on2, torque1on2, torque2on1,
+                                      ebond, bondstore[n]);
     } else {
-      breaking = particle_frame_forces(i1, i2, type, ri, rf,
-                                force1on2, torque1on2, torque2on1, ebond, bondstore[n]);
+      breaking = particle_frame_forces(i1, i2, type, ri, rf, force1on2, torque1on2, torque2on1,
+                                       ebond, bondstore[n]);
     }
 
     if (damping_style == DEM)
@@ -917,8 +919,8 @@ void BondBPMRotational::compute(int eflag, int vflag)
     }
 
     if (evflag)
-      ev_tally_xyz(i1, i2, nlocal, newton_bond, ebond, -force1on2[0], -force1on2[1],
-                   -force1on2[2], rf[0], rf[1], rf[2]);
+      ev_tally_xyz(i1, i2, nlocal, newton_bond, ebond, -force1on2[0], -force1on2[1], -force1on2[2],
+                   rf[0], rf[1], rf[2]);
   }
 
   post_compute();
@@ -1004,11 +1006,6 @@ void BondBPMRotational::coeff(int narg, char **arg)
 
 void BondBPMRotational::init_style()
 {
-  if (damping_style == DEM)
-    nhistory = 4;
-  else
-    nhistory = 7;
-
   BondBPM::init_style();
 
   if (!atom->quat_flag || !atom->radius_flag || !atom->omega_flag)
@@ -1059,6 +1056,9 @@ void BondBPMRotational::settings(int narg, char **arg)
       error->all(FLERR, "Illegal bond bpm command, invalid argument {}", arg[iarg]);
     }
   }
+
+  if (damping_style == DEM)
+    nhistory = 4;
 
   if (smooth_flag && !break_flag)
     error->all(FLERR, "Illegal bond bpm command, must turn off smoothing with break no option");
