@@ -47,7 +47,6 @@ class FixWall : public Fix {
 
   virtual void precompute(int) = 0;
   virtual void wall_particle(int, int, double) = 0;
-  static void update_image_plane(int, int, double, double **, class Domain *);
 
  protected:
   double epsilon[6], sigma[6], alpha[6], cutoff[6];

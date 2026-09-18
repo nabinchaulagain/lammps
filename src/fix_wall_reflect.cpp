@@ -19,7 +19,6 @@
 #include "domain.h"
 #include "dump_image.h"
 #include "error.h"
-#include "fix_wall.h"
 #include "input.h"
 #include "lattice.h"
 #include "memory.h"
@@ -58,12 +57,12 @@ FixWallReflect::FixWallReflect(LAMMPS *lmp, int narg, char **arg) :
       if (iarg+2 > narg) error->all(FLERR, "Illegal fix wall/reflect {} command: missing argument(s)", arg[iarg]);
 
       int newwall;
-      if (strcmp(arg[iarg],"xlo") == 0) newwall = FixWall::XLO;
-      else if (strcmp(arg[iarg],"xhi") == 0) newwall = FixWall::XHI;
-      else if (strcmp(arg[iarg],"ylo") == 0) newwall = FixWall::YLO;
-      else if (strcmp(arg[iarg],"yhi") == 0) newwall = FixWall::YHI;
-      else if (strcmp(arg[iarg],"zlo") == 0) newwall = FixWall::ZLO;
-      else if (strcmp(arg[iarg],"zhi") == 0) newwall = FixWall::ZHI;
+      if (strcmp(arg[iarg],"xlo") == 0) newwall = XLO;
+      else if (strcmp(arg[iarg],"xhi") == 0) newwall = XHI;
+      else if (strcmp(arg[iarg],"ylo") == 0) newwall = YLO;
+      else if (strcmp(arg[iarg],"yhi") == 0) newwall = YHI;
+      else if (strcmp(arg[iarg],"zlo") == 0) newwall = ZLO;
+      else if (strcmp(arg[iarg],"zhi") == 0) newwall = ZHI;
 
       for (int m = 0; (m < nwall) && (m < 6); m++)
         if (newwall == wallwhich[m])
@@ -102,16 +101,16 @@ FixWallReflect::FixWallReflect(LAMMPS *lmp, int narg, char **arg) :
   if (nwall == 0) utils::missing_cmd_args(FLERR, "fix wall/reflect", error);
 
   for (int m = 0; m < nwall; m++) {
-    if ((wallwhich[m] == FixWall::XLO || wallwhich[m] == FixWall::XHI) && domain->xperiodic)
+    if ((wallwhich[m] == XLO || wallwhich[m] == XHI) && domain->xperiodic)
       error->all(FLERR,"Cannot use fix wall/reflect in periodic dimension x");
-    if ((wallwhich[m] == FixWall::YLO || wallwhich[m] == FixWall::YHI) && domain->yperiodic)
+    if ((wallwhich[m] == YLO || wallwhich[m] == YHI) && domain->yperiodic)
       error->all(FLERR,"Cannot use fix wall/reflect in periodic dimension y");
-    if ((wallwhich[m] == FixWall::ZLO || wallwhich[m] == FixWall::ZHI) && domain->zperiodic)
+    if ((wallwhich[m] == ZLO || wallwhich[m] == ZHI) && domain->zperiodic)
       error->all(FLERR,"Cannot use fix wall/reflect in periodic dimension z");
   }
 
   for (int m = 0; m < nwall; m++)
-    if ((wallwhich[m] == FixWall::ZLO || wallwhich[m] == FixWall::ZHI) && domain->dimension == 2)
+    if ((wallwhich[m] == ZLO || wallwhich[m] == ZHI) && domain->dimension == 2)
       error->all(FLERR,
                  "Cannot use fix wall/reflect zlo/zhi for a 2d simulation");
 
@@ -131,8 +130,8 @@ FixWallReflect::FixWallReflect(LAMMPS *lmp, int narg, char **arg) :
 
     for (int m = 0; m < nwall; m++) {
       if (wallstyle[m] != CONSTANT) continue;
-      if (wallwhich[m] < FixWall::YLO) coord0[m] *= xscale;
-      else if (wallwhich[m] < FixWall::ZLO) coord0[m] *= yscale;
+      if (wallwhich[m] < YLO) coord0[m] *= xscale;
+      else if (wallwhich[m] < ZLO) coord0[m] *= yscale;
       else coord0[m] *= zscale;
     }
   }
@@ -223,15 +222,15 @@ void FixWallReflect::post_integrate()
   for (int m = 0; m < nwall; m++) {
     if (wallstyle[m] == VARIABLE) {
       coord = input->variable->compute_equal(varindex[m]);
-      if (wallwhich[m] < FixWall::YLO) coord *= xscale;
-      else if (wallwhich[m] < FixWall::ZLO) coord *= yscale;
+      if (wallwhich[m] < YLO) coord *= xscale;
+      else if (wallwhich[m] < ZLO) coord *= yscale;
       else coord *= zscale;
     } else coord = coord0[m];
 
     wall_particle(m,wallwhich[m],coord);
 
     // record wall graphics objects for dump image
-    FixWall::update_image_plane(m, wallwhich[m], coord, imgparms, domain);
+    wall_update_objs(m,wallwhich[m],coord);
   }
 
   if (varflag) modify->addstep_compute(update->ntimestep + 1);
@@ -266,6 +265,106 @@ void FixWallReflect::wall_particle(int /* m */, int which, double coord)
           v[i][dim] = -v[i][dim];
         }
       }
+    }
+  }
+}
+
+/* ----------------------------------------------------------------------
+   update wall graphics object info for dump image
+------------------------------------------------------------------------- */
+
+void FixWallReflect::wall_update_objs(int m, int which, double coord)
+{
+  if (domain->dimension == 2) {
+    // one cylinder for 2d. diameter is zero and can be set with fparam2
+    switch (which) {
+    case XLO:    // fallthrough
+    case XHI:
+      imgparms[m][1] = coord;
+      imgparms[m][2] = domain->boxlo[1];
+      imgparms[m][3] = 0.0;
+      imgparms[m][4] = coord;
+      imgparms[m][5] = domain->boxhi[1];
+      imgparms[m][6] = 0.0;
+      imgparms[m][7] = 0.0;
+      break;
+    case YLO:    // fallthrough
+    case YHI:
+      imgparms[m][1] = domain->boxlo[0];
+      imgparms[m][2] = coord;
+      imgparms[m][3] = 0.0;
+      imgparms[m][4] = domain->boxhi[0];
+      imgparms[m][5] = coord;
+      imgparms[m][6] = 0.0;
+      imgparms[m][7] = 0.0;
+      break;
+    }
+  } else {
+    // two triangles for 3d
+    switch (which) {
+    case XLO:    // fallthrough
+    case XHI:
+      imgparms[2 * m][1] = coord;
+      imgparms[2 * m][2] = domain->boxlo[1];
+      imgparms[2 * m][3] = domain->boxlo[2];
+      imgparms[2 * m][4] = coord;
+      imgparms[2 * m][5] = domain->boxhi[1];
+      imgparms[2 * m][6] = domain->boxlo[2];
+      imgparms[2 * m][7] = coord;
+      imgparms[2 * m][8] = domain->boxlo[1];
+      imgparms[2 * m][9] = domain->boxhi[2];
+      imgparms[2 * m + 1][1] = coord;
+      imgparms[2 * m + 1][2] = domain->boxhi[1];
+      imgparms[2 * m + 1][3] = domain->boxhi[2];
+      imgparms[2 * m + 1][4] = coord;
+      imgparms[2 * m + 1][5] = domain->boxlo[1];
+      imgparms[2 * m + 1][6] = domain->boxhi[2];
+      imgparms[2 * m + 1][7] = coord;
+      imgparms[2 * m + 1][8] = domain->boxhi[1];
+      imgparms[2 * m + 1][9] = domain->boxlo[2];
+      break;
+    case YLO:    // fallthrough
+    case YHI:
+      imgparms[2 * m][1] = domain->boxlo[0];
+      imgparms[2 * m][2] = coord;
+      imgparms[2 * m][3] = domain->boxlo[2];
+      imgparms[2 * m][4] = domain->boxhi[0];
+      imgparms[2 * m][5] = coord;
+      imgparms[2 * m][6] = domain->boxlo[2];
+      imgparms[2 * m][7] = domain->boxlo[0];
+      imgparms[2 * m][8] = coord;
+      imgparms[2 * m][9] = domain->boxhi[2];
+      imgparms[2 * m + 1][1] = domain->boxhi[0];
+      imgparms[2 * m + 1][2] = coord;
+      imgparms[2 * m + 1][3] = domain->boxhi[2];
+      imgparms[2 * m + 1][4] = domain->boxlo[0];
+      imgparms[2 * m + 1][5] = coord;
+      imgparms[2 * m + 1][6] = domain->boxhi[2];
+      imgparms[2 * m + 1][7] = domain->boxhi[0];
+      imgparms[2 * m + 1][8] = coord;
+      imgparms[2 * m + 1][9] = domain->boxlo[2];
+      break;
+    case ZLO:    // fallthrough
+    case ZHI:
+      imgparms[2 * m][1] = domain->boxlo[0];
+      imgparms[2 * m][2] = domain->boxlo[1];
+      imgparms[2 * m][3] = coord;
+      imgparms[2 * m][4] = domain->boxhi[0];
+      imgparms[2 * m][5] = domain->boxlo[1];
+      imgparms[2 * m][6] = coord;
+      imgparms[2 * m][7] = domain->boxlo[0];
+      imgparms[2 * m][8] = domain->boxhi[1];
+      imgparms[2 * m][9] = coord;
+      imgparms[2 * m + 1][1] = domain->boxhi[0];
+      imgparms[2 * m + 1][2] = domain->boxhi[1];
+      imgparms[2 * m + 1][3] = coord;
+      imgparms[2 * m + 1][4] = domain->boxlo[0];
+      imgparms[2 * m + 1][5] = domain->boxhi[1];
+      imgparms[2 * m + 1][6] = coord;
+      imgparms[2 * m + 1][7] = domain->boxhi[0];
+      imgparms[2 * m + 1][8] = domain->boxlo[1];
+      imgparms[2 * m + 1][9] = coord;
+      break;
     }
   }
 }

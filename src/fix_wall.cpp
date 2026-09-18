@@ -31,107 +31,6 @@ using namespace FixConst;
 
 static const char *wallpos[] = {"xlo", "xhi", "ylo", "yhi", "zlo", "zhi"};
 
-// record wall info for dump image
-
-void FixWall::update_image_plane(int m, int which, double coord, double **imgparms, Domain *domain)
-{
-  if (domain->dimension == 2) {
-    // one cylinder for 2d. diameter is zero and can be set with fparam2
-    switch (which) {
-      case XLO:    // fallthrough
-      case XHI:
-        imgparms[m][1] = coord;
-        imgparms[m][2] = domain->boxlo[1];
-        imgparms[m][3] = 0.0;
-        imgparms[m][4] = coord;
-        imgparms[m][5] = domain->boxhi[1];
-        imgparms[m][6] = 0.0;
-        imgparms[m][7] = 0.0;
-        break;
-      case YLO:    // fallthrough
-      case YHI:
-        imgparms[m][1] = domain->boxlo[0];
-        imgparms[m][2] = coord;
-        imgparms[m][3] = 0.0;
-        imgparms[m][4] = domain->boxhi[0];
-        imgparms[m][5] = coord;
-        imgparms[m][6] = 0.0;
-        imgparms[m][7] = 0.0;
-        break;
-      case ZLO:     // fallthrough
-      case ZHI:;    // no wall in z-direction allowed for 2d systems
-        break;
-    }
-  } else {
-    // two triangles for 3d
-    switch (which) {
-      case XLO:    // fallthrough
-      case XHI:
-        imgparms[2 * m][1] = coord;
-        imgparms[2 * m][2] = domain->boxlo[1];
-        imgparms[2 * m][3] = domain->boxlo[2];
-        imgparms[2 * m][4] = coord;
-        imgparms[2 * m][5] = domain->boxhi[1];
-        imgparms[2 * m][6] = domain->boxlo[2];
-        imgparms[2 * m][7] = coord;
-        imgparms[2 * m][8] = domain->boxlo[1];
-        imgparms[2 * m][9] = domain->boxhi[2];
-        imgparms[2 * m + 1][1] = coord;
-        imgparms[2 * m + 1][2] = domain->boxhi[1];
-        imgparms[2 * m + 1][3] = domain->boxhi[2];
-        imgparms[2 * m + 1][4] = coord;
-        imgparms[2 * m + 1][5] = domain->boxlo[1];
-        imgparms[2 * m + 1][6] = domain->boxhi[2];
-        imgparms[2 * m + 1][7] = coord;
-        imgparms[2 * m + 1][8] = domain->boxhi[1];
-        imgparms[2 * m + 1][9] = domain->boxlo[2];
-        break;
-      case YLO:    // fallthrough
-      case YHI:
-        imgparms[2 * m][1] = domain->boxlo[0];
-        imgparms[2 * m][2] = coord;
-        imgparms[2 * m][3] = domain->boxlo[2];
-        imgparms[2 * m][4] = domain->boxhi[0];
-        imgparms[2 * m][5] = coord;
-        imgparms[2 * m][6] = domain->boxlo[2];
-        imgparms[2 * m][7] = domain->boxlo[0];
-        imgparms[2 * m][8] = coord;
-        imgparms[2 * m][9] = domain->boxhi[2];
-        imgparms[2 * m + 1][1] = domain->boxhi[0];
-        imgparms[2 * m + 1][2] = coord;
-        imgparms[2 * m + 1][3] = domain->boxhi[2];
-        imgparms[2 * m + 1][4] = domain->boxlo[0];
-        imgparms[2 * m + 1][5] = coord;
-        imgparms[2 * m + 1][6] = domain->boxhi[2];
-        imgparms[2 * m + 1][7] = domain->boxhi[0];
-        imgparms[2 * m + 1][8] = coord;
-        imgparms[2 * m + 1][9] = domain->boxlo[2];
-        break;
-      case ZLO:    // fallthrough
-      case ZHI:
-        imgparms[2 * m][1] = domain->boxlo[0];
-        imgparms[2 * m][2] = domain->boxlo[1];
-        imgparms[2 * m][3] = coord;
-        imgparms[2 * m][4] = domain->boxhi[0];
-        imgparms[2 * m][5] = domain->boxlo[1];
-        imgparms[2 * m][6] = coord;
-        imgparms[2 * m][7] = domain->boxlo[0];
-        imgparms[2 * m][8] = domain->boxhi[1];
-        imgparms[2 * m][9] = coord;
-        imgparms[2 * m + 1][1] = domain->boxhi[0];
-        imgparms[2 * m + 1][2] = domain->boxhi[1];
-        imgparms[2 * m + 1][3] = coord;
-        imgparms[2 * m + 1][4] = domain->boxlo[0];
-        imgparms[2 * m + 1][5] = domain->boxhi[1];
-        imgparms[2 * m + 1][6] = coord;
-        imgparms[2 * m + 1][7] = domain->boxhi[0];
-        imgparms[2 * m + 1][8] = domain->boxlo[1];
-        imgparms[2 * m + 1][9] = coord;
-        break;
-    }
-  }
-}
-
 /* ---------------------------------------------------------------------- */
 
 FixWall::FixWall(LAMMPS *lmp, int narg, char **arg) : Fix(lmp, narg, arg), nwall(0)
@@ -452,7 +351,7 @@ void FixWall::min_setup(int vflag)
 
 /* ----------------------------------------------------------------------
    only called if fldflag set, in place of post_force
-   ------------------------------------------------------------------------- */
+------------------------------------------------------------------------- */
 
 void FixWall::pre_force(int vflag)
 {
@@ -505,8 +404,104 @@ void FixWall::post_force(int vflag)
 
     wall_particle(m, wallwhich[m], coord);
 
-    update_image_plane(m, wallwhich[m], coord, imgparms, domain);
+    // record wall info for dump image
+    if (domain->dimension == 2) {
+      // one cylinder for 2d. diameter is zero and can be set with fparam2
+      switch (wallwhich[m]) {
+        case XLO:    // fallthrough
+        case XHI:
+          imgparms[m][1] = coord;
+          imgparms[m][2] = domain->boxlo[1];
+          imgparms[m][3] = 0.0;
+          imgparms[m][4] = coord;
+          imgparms[m][5] = domain->boxhi[1];
+          imgparms[m][6] = 0.0;
+          imgparms[m][7] = 0.0;
+          break;
+        case YLO:    // fallthrough
+        case YHI:
+          imgparms[m][1] = domain->boxlo[0];
+          imgparms[m][2] = coord;
+          imgparms[m][3] = 0.0;
+          imgparms[m][4] = domain->boxhi[0];
+          imgparms[m][5] = coord;
+          imgparms[m][6] = 0.0;
+          imgparms[m][7] = 0.0;
+          break;
+        case ZLO:     // fallthrough
+        case ZHI:;    // no wall in z-direction allowed for 2d systems
+          break;
+      }
+    } else {
+      // two triangles for 3d
+      switch (wallwhich[m]) {
+        case XLO:    // fallthrough
+        case XHI:
+          imgparms[2 * m][1] = coord;
+          imgparms[2 * m][2] = domain->boxlo[1];
+          imgparms[2 * m][3] = domain->boxlo[2];
+          imgparms[2 * m][4] = coord;
+          imgparms[2 * m][5] = domain->boxhi[1];
+          imgparms[2 * m][6] = domain->boxlo[2];
+          imgparms[2 * m][7] = coord;
+          imgparms[2 * m][8] = domain->boxlo[1];
+          imgparms[2 * m][9] = domain->boxhi[2];
+          imgparms[2 * m + 1][1] = coord;
+          imgparms[2 * m + 1][2] = domain->boxhi[1];
+          imgparms[2 * m + 1][3] = domain->boxhi[2];
+          imgparms[2 * m + 1][4] = coord;
+          imgparms[2 * m + 1][5] = domain->boxlo[1];
+          imgparms[2 * m + 1][6] = domain->boxhi[2];
+          imgparms[2 * m + 1][7] = coord;
+          imgparms[2 * m + 1][8] = domain->boxhi[1];
+          imgparms[2 * m + 1][9] = domain->boxlo[2];
+          break;
+        case YLO:    // fallthrough
+        case YHI:
+          imgparms[2 * m][1] = domain->boxlo[0];
+          imgparms[2 * m][2] = coord;
+          imgparms[2 * m][3] = domain->boxlo[2];
+          imgparms[2 * m][4] = domain->boxhi[0];
+          imgparms[2 * m][5] = coord;
+          imgparms[2 * m][6] = domain->boxlo[2];
+          imgparms[2 * m][7] = domain->boxlo[0];
+          imgparms[2 * m][8] = coord;
+          imgparms[2 * m][9] = domain->boxhi[2];
+          imgparms[2 * m + 1][1] = domain->boxhi[0];
+          imgparms[2 * m + 1][2] = coord;
+          imgparms[2 * m + 1][3] = domain->boxhi[2];
+          imgparms[2 * m + 1][4] = domain->boxlo[0];
+          imgparms[2 * m + 1][5] = coord;
+          imgparms[2 * m + 1][6] = domain->boxhi[2];
+          imgparms[2 * m + 1][7] = domain->boxhi[0];
+          imgparms[2 * m + 1][8] = coord;
+          imgparms[2 * m + 1][9] = domain->boxlo[2];
+          break;
+        case ZLO:    // fallthrough
+        case ZHI:
+          imgparms[2 * m][1] = domain->boxlo[0];
+          imgparms[2 * m][2] = domain->boxlo[1];
+          imgparms[2 * m][3] = coord;
+          imgparms[2 * m][4] = domain->boxhi[0];
+          imgparms[2 * m][5] = domain->boxlo[1];
+          imgparms[2 * m][6] = coord;
+          imgparms[2 * m][7] = domain->boxlo[0];
+          imgparms[2 * m][8] = domain->boxhi[1];
+          imgparms[2 * m][9] = coord;
+          imgparms[2 * m + 1][1] = domain->boxhi[0];
+          imgparms[2 * m + 1][2] = domain->boxhi[1];
+          imgparms[2 * m + 1][3] = coord;
+          imgparms[2 * m + 1][4] = domain->boxlo[0];
+          imgparms[2 * m + 1][5] = domain->boxhi[1];
+          imgparms[2 * m + 1][6] = coord;
+          imgparms[2 * m + 1][7] = domain->boxhi[0];
+          imgparms[2 * m + 1][8] = domain->boxlo[1];
+          imgparms[2 * m + 1][9] = coord;
+          break;
+      }
+    }
   }
+
   if (varflag) modify->addstep_compute(update->ntimestep + 1);
 }
 
