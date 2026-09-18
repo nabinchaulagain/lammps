@@ -19,7 +19,6 @@
 #include "error.h"
 #include "force.h"
 #include "improper.h"
-#include "tokenizer.h"
 
 #include <algorithm>
 #include <cstring>
@@ -583,7 +582,17 @@ int LabelMap::infer_impropertype(const std::vector<std::string> &mytypes)
 
 int LabelMap::parse_typelabel(int ntypes, const std::string &label, std::vector<std::string> &types)
 {
-  auto out = Tokenizer(label,"-").as_vector();
+  std::vector<std::string> out;
+  size_t start = label.find_first_not_of('-');
+
+  while (start != std::string::npos) {
+    size_t end = label.find('-', start);
+    size_t len = (end == std::string::npos) ? std::string::npos : end - start;
+    std::string token = label.substr(start, len);
+    if (token.empty()) return -1;
+    out.emplace_back(std::move(token));
+    start = label.find_first_not_of('-', end);
+  }
   if (out.size() != ntypes) return -1;
   types = std::move(out);
   return 1;
