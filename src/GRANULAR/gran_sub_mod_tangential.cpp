@@ -198,6 +198,13 @@ GranSubModTangentialLinearHistoryClassic::GranSubModTangentialLinearHistoryClass
 
 /* ---------------------------------------------------------------------- */
 
+double GranSubModTangentialLinearHistoryClassic::get_effective_k() const
+{
+  return contact_radius_flag ? k * gm->contact_radius : k;
+}
+
+/* ---------------------------------------------------------------------- */
+
 void GranSubModTangentialLinearHistoryClassic::calculate_forces()
 {
   double magfs, magfs_inv, rsht, shrmag;
@@ -207,7 +214,6 @@ void GranSubModTangentialLinearHistoryClassic::calculate_forces()
   double *vtr = gm->vtr;
   double *fs = gm->fs;
   double dt = gm->dt;
-  double contact_radius = gm->contact_radius;
   double *history = &gm->history[history_index];
   int history_update = gm->history_update;
 
@@ -230,10 +236,8 @@ void GranSubModTangentialLinearHistoryClassic::calculate_forces()
   }
 
   // tangential forces = history + tangential velocity damping
-  if (contact_radius_flag)
-    scale3(-k * contact_radius, history, fs);
-  else
-    scale3(-k, history, fs);
+  double effective_k = get_effective_k();
+  scale3(-effective_k, history, fs);
   scale3(damp, vtr, temp_array);
   sub3(fs, temp_array, fs);
 
@@ -245,10 +249,7 @@ void GranSubModTangentialLinearHistoryClassic::calculate_forces()
       scale3(Fscrit * magfs_inv, fs, history);
       scale3(damp, vtr, temp_array);
       add3(history, temp_array, history);
-      if (contact_radius_flag)
-        scale3(-1.0 / (k * contact_radius), history);
-      else
-        scale3(-1.0 / k, history);
+      scale3(-1.0 / effective_k, history);
       scale3(Fscrit * magfs_inv, fs);
     } else {
       zero3(fs);

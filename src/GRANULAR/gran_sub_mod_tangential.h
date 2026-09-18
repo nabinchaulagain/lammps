@@ -84,6 +84,9 @@ namespace LAMMPS_NS::Granular_NS {
    public:
     GranSubModTangentialLinearHistoryClassic(class GranularModel *, class LAMMPS *);
     void calculate_forces() override;
+
+   protected:
+    [[nodiscard]] double get_effective_k() const;
   };
 
   /* ---------------------------------------------------------------------- */
