@@ -23,6 +23,7 @@
 #include "update.h"
 
 #include <cstring>
+#include <string>
 
 using namespace LAMMPS_NS;
 using namespace FixConst;
@@ -135,22 +136,23 @@ FixPair::FixPair(LAMMPS *lmp, int narg, char **arg) :
 /* ---------------------------------------------------------------------- */
 
 void FixPair::query_pstyle(LAMMPS *lmp) {
-    char *cptr=nullptr;
     int nsub = 0;
-    if ((cptr = strchr(pairname, ':'))) {
-        *cptr = '\0';
-        nsub = utils::inumeric(FLERR,cptr+1,false,lmp);
+    std::string basename = pairname;
+    const char *cptr = strchr(pairname, ':');
+    if (cptr) {
+        basename = std::string(pairname, cptr - pairname);
+        nsub = utils::inumeric(FLERR, cptr + 1, false, lmp);
     }
     pstyle = nullptr;
     if (lmp->suffix_enable) {
         if (lmp->suffix) {
-            pstyle = force->pair_match(fmt::format("{}/{}", pairname, lmp->suffix), 1, nsub);
+            pstyle = force->pair_match(fmt::format("{}/{}", basename, lmp->suffix), 1, nsub);
             if (pstyle == nullptr && (lmp->suffix2)) {
-                pstyle = force->pair_match(fmt::format("{}/{}", pairname, lmp->suffix2), 1, nsub);
+                pstyle = force->pair_match(fmt::format("{}/{}", basename, lmp->suffix2), 1, nsub);
             }
         }
     }
-    if (pstyle == nullptr) pstyle = force->pair_match(pairname, 1, nsub);
+    if (pstyle == nullptr) pstyle = force->pair_match(basename.c_str(), 1, nsub);
 }
 
 
