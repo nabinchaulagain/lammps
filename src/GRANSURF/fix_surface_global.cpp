@@ -1416,18 +1416,18 @@ void FixSurfaceGlobal::post_force(int /*vflag*/)
 
     // Sort contacts by overlap and create a map
     std::sort(contact_surfs.begin(), contact_surfs.end(), [](const ContactSurf &a, const ContactSurf &b) {
-        if (a.overlap > (b.overlap + EPSILON)) return 1; // 1st compare overlaps within epsilon
-        if (b.overlap > (a.overlap + EPSILON)) return 0;
-        if (a.priority > b.priority) return 1; // 2nd, prioritize interior > edge > corner
-        if (b.priority > a.priority) return 0;
+        if (a.overlap > (b.overlap + EPSILON)) return true; // 1st compare overlaps within epsilon
+        if (b.overlap > (a.overlap + EPSILON)) return false;
+        if (a.priority > b.priority) return true; // 2nd, prioritize interior > edge > corner
+        if (b.priority > a.priority) return false;
         double dota = fabs(MathExtra::dot3(a.surf_norm, a.dr)); // sign may not yet be set
         double dotb = fabs(MathExtra::dot3(b.surf_norm, b.dr));
-        if (dota > (dotb + EPSILON)) return 1; // 3rd, prioritize which one aligns best
-        if (dotb > (dota + EPSILON)) return 0;
-        if (a.rsq_com < (b.rsq_com - EPSILON)) return 1; // 4th, prioritize closer CoM
-        if (b.rsq_com < (a.rsq_com - EPSILON)) return 0;
-        if (a.index < b.index) return 1;
-        else return 0;
+        if (dota > (dotb + EPSILON)) return true; // 3rd, prioritize which one aligns best
+        if (dotb > (dota + EPSILON)) return false;
+        if (a.rsq_com < (b.rsq_com - EPSILON)) return true; // 4th, prioritize closer CoM
+        if (b.rsq_com < (a.rsq_com - EPSILON)) return false;
+        if (a.index < b.index) return true;
+        else return false;
       });
 
     contacts_map.clear();
@@ -1442,18 +1442,18 @@ void FixSurfaceGlobal::post_force(int /*vflag*/)
 
     // Given corrected surface norms, resort contacts
     std::sort(contact_surfs.begin(), contact_surfs.end(), [](const ContactSurf &a, const ContactSurf &b) {
-        if (a.overlap > (b.overlap + EPSILON)) return 1;
-        if (b.overlap > (a.overlap + EPSILON)) return 0;
-        if (a.priority > b.priority) return 1;
-        if (b.priority > a.priority) return 0;
+        if (a.overlap > (b.overlap + EPSILON)) return true;
+        if (b.overlap > (a.overlap + EPSILON)) return false;
+        if (a.priority > b.priority) return true;
+        if (b.priority > a.priority) return false;
         double dota = MathExtra::dot3(a.surf_norm, a.dr);
         double dotb = MathExtra::dot3(b.surf_norm, b.dr);
-        if (dota > (dotb + EPSILON)) return 1;
-        if (dotb > (dota + EPSILON)) return 0;
-        if (a.rsq_com < (b.rsq_com - EPSILON)) return 1;
-        if (b.rsq_com < (a.rsq_com - EPSILON)) return 0;
-        if (a.index < b.index) return 1;
-        else return 0;
+        if (dota > (dotb + EPSILON)) return true;
+        if (dotb > (dota + EPSILON)) return false;
+        if (a.rsq_com < (b.rsq_com - EPSILON)) return true;
+        if (b.rsq_com < (a.rsq_com - EPSILON)) return false;
+        if (a.index < b.index) return true;
+        else return false;
       });
 
     for (auto n = 0; n < contact_surfs.size(); n++)
