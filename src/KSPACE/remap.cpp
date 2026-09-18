@@ -796,7 +796,6 @@ void remap_3d_destroy_plan(struct remap_plan_3d *plan)
 
   if (plan->scratch) free(plan->scratch);
   if (plan->sendbuf) free(plan->sendbuf);
-  if (plan->send_bufloc) free(plan->send_bufloc);
 
   // free plan itself
 
