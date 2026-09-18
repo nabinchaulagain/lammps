@@ -1943,6 +1943,10 @@ int Image::addcolor(char *name, double r, double g, double b)
   for (icolor = 0; icolor < ncolors; icolor++)
     if (strcmp(name,username[icolor]) == 0) break;
 
+  if (r < 0.0 || r > 1.0) return 1;
+  if (g < 0.0 || g > 1.0) return 2;
+  if (b < 0.0 || b > 1.0) return 3;
+
   if (icolor == ncolors) {
     username = (char **)
       memory->srealloc(username,(ncolors+1)*sizeof(char *),"image:username");
@@ -1953,10 +1957,6 @@ int Image::addcolor(char *name, double r, double g, double b)
   int n = strlen(name) + 1;
   username[icolor] = new char[n];
   strcpy(username[icolor],name);
-
-  if (r < 0.0 || r > 1.0) return 1;
-  if (g < 0.0 || g > 1.0) return 2;
-  if (b < 0.0 || b > 1.0) return 3;
 
   userrgb[icolor][0] = r;
   userrgb[icolor][1] = g;
