@@ -695,8 +695,8 @@ void compute_overlap_distance(
     double t = 0.0; // Distance along the normal
     double current_p[3];
     double val;
-    double tol = 1e-8;
-    unsigned int max_iter = 20;
+    double tol = CONVERGENCE_NEWTON;
+    unsigned int max_iter = ITERMAX_NEWTON;
     
     for (unsigned int iter = 0; iter < max_iter; iter++) {
         // Update current search position: P = Start + t * Normal
