@@ -587,7 +587,10 @@ int LabelMap::parse_typelabel(int ntypes, const std::string &label, std::vector<
 
   while (start != std::string::npos) {
     size_t end = label.find('-', start);
-    out.emplace_back(label.substr(start, end - start));
+    size_t len = (end == std::string::npos) ? std::string::npos : end - start;
+    std::string token = label.substr(start, len);
+    if (token.empty()) return -1;
+    out.emplace_back(std::move(token));
     start = label.find_first_not_of('-', end);
   }
   if (out.size() != ntypes) return -1;
