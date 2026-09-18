@@ -298,9 +298,6 @@ void FixWallReflect::wall_update_objs(int m, int which, double coord)
       imgparms[m][6] = 0.0;
       imgparms[m][7] = 0.0;
       break;
-    case ZLO:     // fallthrough
-    case ZHI:;    // no wall in z-direction allowed for 2d systems
-      break;
     }
   } else {
     // two triangles for 3d
