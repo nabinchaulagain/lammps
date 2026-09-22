@@ -280,23 +280,23 @@ void FixWallReflect::wall_update_objs(int m, int which, double coord)
     switch (which) {
     case XLO:    // fallthrough
     case XHI:
-      imgparms[m][1] = coord;
-      imgparms[m][2] = domain->boxlo[1];
-      imgparms[m][3] = 0.0;
-      imgparms[m][4] = coord;
-      imgparms[m][5] = domain->boxhi[1];
-      imgparms[m][6] = 0.0;
-      imgparms[m][7] = 0.0;
+      imgparms[m][IMG_X1] = coord;
+      imgparms[m][IMG_Y1] = domain->boxlo[1];
+      imgparms[m][IMG_Z1] = 0.0;
+      imgparms[m][IMG_X2] = coord;
+      imgparms[m][IMG_Y2] = domain->boxhi[1];
+      imgparms[m][IMG_Z2] = 0.0;
+      imgparms[m][IMG_DIAM] = 0.0;
       break;
     case YLO:    // fallthrough
     case YHI:
-      imgparms[m][1] = domain->boxlo[0];
-      imgparms[m][2] = coord;
-      imgparms[m][3] = 0.0;
-      imgparms[m][4] = domain->boxhi[0];
-      imgparms[m][5] = coord;
-      imgparms[m][6] = 0.0;
-      imgparms[m][7] = 0.0;
+      imgparms[m][IMG_X1] = domain->boxlo[0];
+      imgparms[m][IMG_Y1] = coord;
+      imgparms[m][IMG_Z1] = 0.0;
+      imgparms[m][IMG_X2] = domain->boxhi[0];
+      imgparms[m][IMG_Y2] = coord;
+      imgparms[m][IMG_Z2] = 0.0;
+      imgparms[m][IMG_DIAM] = 0.0;
       break;
     case ZLO:     // fallthrough
     case ZHI:;    // no wall in z-direction allowed for 2d systems
