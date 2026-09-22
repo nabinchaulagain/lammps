@@ -106,6 +106,18 @@ static void decompose_swing_twist(double *quat, double *swing, double *twist)
 
 /* ---------------------------------------------------------------------- */
 
+double BondBPMRotational::compute_smooth_factor(double breaking)
+{
+  double smooth = 1.0;
+  if (smooth_flag) {
+    smooth = breaking * breaking;
+    smooth = 1.0 - smooth * smooth;
+  }
+  return smooth;
+}
+
+/* ---------------------------------------------------------------------- */
+
 BondBPMRotational::BondBPMRotational(LAMMPS *_lmp) :
     BondBPM(_lmp), Kr(nullptr), Ks(nullptr), Kt(nullptr), Kb(nullptr), gr(nullptr),
     gs(nullptr), gt(nullptr), gb(nullptr), Fcr(nullptr), Fcs(nullptr), Tct(nullptr),
@@ -120,6 +132,8 @@ BondBPMRotational::BondBPMRotational(LAMMPS *_lmp) :
   damping_style = DERIVATIVE;
 
   update_flag = 1;
+  // History: [0]=ri_mag, [1-3]=ri_hat
+  //  if derivative damping: [4]=gamma, [5]=theta, [6]=psi
   nhistory = 7;
   id_fix_bond_history = utils::strdup("HISTORY_BPM_ROTATIONAL");
 
@@ -824,7 +838,12 @@ void BondBPMRotational::dem_damping_forces(int i1, int i2, int type, double *r,
 
 void BondBPMRotational::compute(int eflag, int vflag)
 {
-  pre_compute();
+  if (!fix_bond_history->stored_flag) {
+    fix_bond_history->stored_flag = true;
+    store_data();
+  }
+
+  if (hybrid_flag) fix_bond_history->compress_history();
 
   int i1, i2, itmp, n, type;
   double ri_norm, ebond, breaking, smooth;
@@ -872,8 +891,8 @@ void BondBPMRotational::compute(int eflag, int vflag)
       breaking = average_frame_forces(i1, i2, type, ri, rf,
                                   force1on2, torque1on2, torque2on1, ebond, bondstore[n]);
     } else {
-      breaking = particle_frame_forces(i1, i2, type, ri, rf,
-                                force1on2, torque1on2, torque2on1, ebond, bondstore[n]);
+      breaking = particle_frame_forces(i1, i2, type, ri, rf, force1on2, torque1on2, torque2on1,
+                                       ebond, bondstore[n]);
     }
 
     if (damping_style == DEM)
@@ -885,12 +904,7 @@ void BondBPMRotational::compute(int eflag, int vflag)
       continue;
     }
 
-    if (smooth_flag) {
-      smooth = breaking * breaking;
-      smooth = 1.0 - smooth * smooth;
-    } else {
-      smooth = 1.0;
-    }
+    smooth = compute_smooth_factor(breaking);
 
     MathExtra::scale3(smooth, force1on2);
 
@@ -921,7 +935,7 @@ void BondBPMRotational::compute(int eflag, int vflag)
                    -force1on2[2], rf[0], rf[1], rf[2]);
   }
 
-  post_compute();
+  if (hybrid_flag) fix_bond_history->uncompress_history();
 }
 
 /* ---------------------------------------------------------------------- */
@@ -1004,11 +1018,6 @@ void BondBPMRotational::coeff(int narg, char **arg)
 
 void BondBPMRotational::init_style()
 {
-  if (damping_style == DEM)
-    nhistory = 4;
-  else
-    nhistory = 7;
-
   BondBPM::init_style();
 
   if (!atom->quat_flag || !atom->radius_flag || !atom->omega_flag)
@@ -1059,6 +1068,9 @@ void BondBPMRotational::settings(int narg, char **arg)
       error->all(FLERR, "Illegal bond bpm command, invalid argument {}", arg[iarg]);
     }
   }
+
+  if (damping_style == DEM)
+    nhistory = 4;
 
   if (smooth_flag && !break_flag)
     error->all(FLERR, "Illegal bond bpm command, must turn off smoothing with break no option");
@@ -1212,12 +1224,8 @@ double BondBPMRotational::single(int type, double rsq, int i, int j, double &ffo
   MathExtra::scale3(1.0 / rf_mag, rf, rf_hat);
   fforce = MathExtra::dot3(force1on2, rf_hat);
 
-  double smooth = 1.0;
-  if (smooth_flag) {
-    smooth = breaking * breaking;
-    smooth = 1.0 - smooth * smooth;
-    fforce *= smooth;
-  }
+  double smooth = compute_smooth_factor(breaking);
+  if (smooth_flag) fforce *= smooth;
 
   MathExtra::scale3(smooth, force1on2);
   svector[0] = ri_norm;
