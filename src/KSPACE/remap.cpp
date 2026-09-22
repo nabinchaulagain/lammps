@@ -778,7 +778,6 @@ void remap_3d_destroy_plan(struct remap_plan_3d *plan)
       if (plan->usenonblocking) {
         free(plan->isend_reqs);
         free(plan->send_bufloc);
-        plan->send_bufloc = nullptr;
       }
     }
 
