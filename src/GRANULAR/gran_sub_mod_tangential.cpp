@@ -223,11 +223,7 @@ void GranSubModTangentialLinearHistoryClassic::calculate_forces()
   shrmag = len3(history);
 
   // rotate shear displacements
-  if (history_update) {
-    rsht = dot3(history, nx);
-    scale3(rsht, nx, temp_array);
-    sub3(history, temp_array, history);
-  }
+  if (history_update) rotate_rescale_vec(history, nx);
 
   // tangential forces = history + tangential velocity damping
   if (contact_radius_flag)
