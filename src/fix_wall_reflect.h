@@ -26,7 +26,19 @@ namespace LAMMPS_NS {
 
 class FixWallReflect : public Fix {
  public:
+  enum { XLO = 0, XHI = 1, YLO = 2, YHI = 3, ZLO = 4, ZHI = 5 };
   enum { NONE = 0, EDGE, CONSTANT, VARIABLE };
+  // imgparms indices for CYLINDER graphics objects (2D walls)
+  enum {
+    IMG_TYPE = 0,
+    IMG_X1 = 1,
+    IMG_Y1 = 2,
+    IMG_Z1 = 3,
+    IMG_X2 = 4,
+    IMG_Y2 = 5,
+    IMG_Z2 = 6,
+    IMG_DIAM = 7
+  };
 
   FixWallReflect(class LAMMPS *, int, char **);
   ~FixWallReflect() override;
@@ -48,6 +60,7 @@ class FixWallReflect : public Fix {
   double **imgparms;
 
   virtual void wall_particle(int m, int which, double coord);
+  void wall_update_objs(int m, int which, double coord);
 };
 
 }    // namespace LAMMPS_NS
