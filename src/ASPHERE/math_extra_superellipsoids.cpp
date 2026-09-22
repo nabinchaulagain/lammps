@@ -688,8 +688,9 @@ void compute_overlap_distance(
     if (delta < 0.0) delta = 0.0; 
     double t = (-B + std::sqrt(delta)) / (2.0 * A);
 
+    overlap = t;
 
-    } else {
+  } else {
       // --- Superquadric Case (Newton-Raphson on Distance Estimator) ---
     
     double t = 0.0; // Distance along the normal
