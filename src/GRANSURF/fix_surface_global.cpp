@@ -79,6 +79,40 @@ static inline int FLIPSIDE(int nside) {
   else return OPPOSITE_SIDE;
 }
 
+// Comparator for sorting contacts before prewalk (uses fabs for dot products)
+static inline bool compareContactSurfPreWalk(const FixSurface::ContactSurf &a,
+                                             const FixSurface::ContactSurf &b)
+{
+  if (a.overlap > (b.overlap + EPSILON)) return true;
+  if (b.overlap > (a.overlap + EPSILON)) return false;
+  if (a.priority > b.priority) return true;
+  if (b.priority > a.priority) return false;
+  double dota = fabs(MathExtra::dot3(a.surf_norm, a.dr));
+  double dotb = fabs(MathExtra::dot3(b.surf_norm, b.dr));
+  if (dota > (dotb + EPSILON)) return true;
+  if (dotb > (dota + EPSILON)) return false;
+  if (a.rsq_com < (b.rsq_com - EPSILON)) return true;
+  if (b.rsq_com < (a.rsq_com - EPSILON)) return false;
+  return a.index < b.index;
+}
+
+// Comparator for sorting contacts after prewalk (no fabs for dot products)
+static inline bool compareContactSurfPostWalk(const FixSurface::ContactSurf &a,
+                                              const FixSurface::ContactSurf &b)
+{
+  if (a.overlap > (b.overlap + EPSILON)) return true;
+  if (b.overlap > (a.overlap + EPSILON)) return false;
+  if (a.priority > b.priority) return true;
+  if (b.priority > a.priority) return false;
+  double dota = MathExtra::dot3(a.surf_norm, a.dr);
+  double dotb = MathExtra::dot3(b.surf_norm, b.dr);
+  if (dota > (dotb + EPSILON)) return true;
+  if (dotb > (dota + EPSILON)) return false;
+  if (a.rsq_com < (b.rsq_com - EPSILON)) return true;
+  if (b.rsq_com < (a.rsq_com - EPSILON)) return false;
+  return a.index < b.index;
+}
+
 /* ---------------------------------------------------------------------- */
 
 FixSurfaceGlobal::FixSurfaceGlobal(LAMMPS *lmp, int narg, char **arg) :
@@ -1415,7 +1449,7 @@ void FixSurfaceGlobal::post_force(int /*vflag*/)
       continue;
 
     // Sort contacts by overlap and create a map
-    std::sort(contact_surfs.begin(), contact_surfs.end(), FixSurface::contact_presort);
+    std::sort(contact_surfs.begin(), contact_surfs.end(), compareContactSurfPreWalk);
 
     contacts_map.clear();
     for (auto n = 0; n < contact_surfs.size(); n++)
@@ -1428,7 +1462,7 @@ void FixSurfaceGlobal::post_force(int /*vflag*/)
     else prewalk_connections3d();
 
     // Given corrected surface norms, resort contacts
-    std::sort(contact_surfs.begin(), contact_surfs.end(), FixSurface::contact_sort);
+    std::sort(contact_surfs.begin(), contact_surfs.end(), compareContactSurfPostWalk);
 
     for (auto n = 0; n < contact_surfs.size(); n++)
       contacts_map[contact_surfs[n].index] = n;
