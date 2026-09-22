@@ -1937,7 +1937,7 @@ double *Image::map_value2color(int index, double value)
    return 1 if RGB values are invalid, else return 0
 ------------------------------------------------------------------------- */
 
-int Image::addcolor(char *name, double r, double g, double b)
+int Image::addcolor(const char *name, double r, double g, double b)
 {
   int icolor;
   for (icolor = 0; icolor < ncolors; icolor++)
@@ -1948,11 +1948,11 @@ int Image::addcolor(char *name, double r, double g, double b)
       memory->srealloc(username,(ncolors+1)*sizeof(char *),"image:username");
     memory->grow(userrgb,ncolors+1,3,"image:userrgb");
     ncolors++;
+  } else {
+    delete[] username[icolor];
   }
 
-  int n = strlen(name) + 1;
-  username[icolor] = new char[n];
-  strcpy(username[icolor],name);
+  username[icolor] = utils::strdup(name);
 
   if (r < 0.0 || r > 1.0) return 1;
   if (g < 0.0 || g > 1.0) return 2;

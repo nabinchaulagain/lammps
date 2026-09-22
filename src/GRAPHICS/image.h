@@ -73,7 +73,7 @@ class Image : protected Pointers {
   int map_info(int, double &, double &);
   double *map_value2color(int, double);
 
-  int addcolor(char *, double, double, double);
+  int addcolor(const char *, double, double, double);
   double *element2color(char *);
   double element2diam(char *);
   double *color2rgb(const char *, int index = 0);
