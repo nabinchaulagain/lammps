@@ -49,6 +49,7 @@ class BondBPMRotational : public BondBPM {
   double particle_frame_forces(int, int, int, double *, double *, double *, double *,
                                double *, double &, double *);
   void dem_damping_forces(int, int, int, double *, double *, double *, double *);
+  double compute_smooth_factor(double breaking);
 
   void allocate();
   void store_data();

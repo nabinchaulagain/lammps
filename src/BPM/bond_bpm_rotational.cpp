@@ -106,6 +106,18 @@ static void decompose_swing_twist(double *quat, double *swing, double *twist)
 
 /* ---------------------------------------------------------------------- */
 
+double BondBPMRotational::compute_smooth_factor(double breaking)
+{
+  double smooth = 1.0;
+  if (smooth_flag) {
+    smooth = breaking * breaking;
+    smooth = 1.0 - smooth * smooth;
+  }
+  return smooth;
+}
+
+/* ---------------------------------------------------------------------- */
+
 BondBPMRotational::BondBPMRotational(LAMMPS *_lmp) :
     BondBPM(_lmp), Kr(nullptr), Ks(nullptr), Kt(nullptr), Kb(nullptr), gr(nullptr),
     gs(nullptr), gt(nullptr), gb(nullptr), Fcr(nullptr), Fcs(nullptr), Tct(nullptr),
@@ -879,8 +891,8 @@ void BondBPMRotational::compute(int eflag, int vflag)
       breaking = average_frame_forces(i1, i2, type, ri, rf,
                                   force1on2, torque1on2, torque2on1, ebond, bondstore[n]);
     } else {
-      breaking = particle_frame_forces(i1, i2, type, ri, rf,
-                                force1on2, torque1on2, torque2on1, ebond, bondstore[n]);
+      breaking = particle_frame_forces(i1, i2, type, ri, rf, force1on2, torque1on2, torque2on1,
+                                       ebond, bondstore[n]);
     }
 
     if (damping_style == DEM)
@@ -892,12 +904,7 @@ void BondBPMRotational::compute(int eflag, int vflag)
       continue;
     }
 
-    if (smooth_flag) {
-      smooth = breaking * breaking;
-      smooth = 1.0 - smooth * smooth;
-    } else {
-      smooth = 1.0;
-    }
+    smooth = compute_smooth_factor(breaking);
 
     MathExtra::scale3(smooth, force1on2);
 
@@ -1217,12 +1224,8 @@ double BondBPMRotational::single(int type, double rsq, int i, int j, double &ffo
   MathExtra::scale3(1.0 / rf_mag, rf, rf_hat);
   fforce = MathExtra::dot3(force1on2, rf_hat);
 
-  double smooth = 1.0;
-  if (smooth_flag) {
-    smooth = breaking * breaking;
-    smooth = 1.0 - smooth * smooth;
-    fforce *= smooth;
-  }
+  double smooth = compute_smooth_factor(breaking);
+  if (smooth_flag) fforce *= smooth;
 
   MathExtra::scale3(smooth, force1on2);
   svector[0] = ri_norm;
