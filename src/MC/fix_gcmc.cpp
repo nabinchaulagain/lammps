@@ -290,13 +290,13 @@ void FixGCMC::options(int narg, char **arg)
       onemols = atom->molecules;
       nmol = onemols[imol_base]->nset;
       iarg += 2;
-    } else if (strcmp(arg[iarg],"molindex") == 0) {
-      if (iarg+2 > narg) error->all(FLERR,"Illegal fix gcmc command");
-      int index = utils::inumeric(FLERR,arg[iarg+1],false,lmp);
-      if (index < 1)
+    } else if (strcmp(arg[iarg], "molindex") == 0) {
+      if (iarg + 2 > narg) utils::missing_cmd_args(FLERR, "fix gcmc molindex", error);
+      // molindex is 1-based in the input and 0-based internally
+      molindex = utils::inumeric(FLERR, arg[iarg + 1], false, lmp) - 1;
+      if (molindex < 0)
         error->all(FLERR, iarg + 1, "Fix gcmc molindex value {} must be >= 1", arg[iarg + 1]);
-      molindex = index - 1; // local index 0-base internally
-      molindex_flag = 1; // activation
+      molindex_flag = 1;
       iarg += 2;
     } else if (strcmp(arg[iarg], "mcmoves") == 0) {
       if (iarg + 4 > narg) utils::missing_cmd_args(FLERR, "fix gcmc mcmoves", error);
