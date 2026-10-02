@@ -625,11 +625,8 @@ void FixGCMC::init()
     fixrigid = modify->get_fix_by_id(idrigid);
     if (!fixrigid) error->all(FLERR,"Fix gcmc rigid fix ID {} does not exist", idrigid);
     int tmp;
-    auto *rigid_onemols = (Molecule **) fixrigid->extract("onemol",tmp);
-    if (&onemols[imol_base] != rigid_onemols)
+    if (&onemols[imol_base] != (Molecule **) fixrigid->extract("onemol",tmp))
       error->all(FLERR, "Fix gcmc and fix rigid/small not using same molecule template ID");
-    if (molindex >= rigid_onemols[0]->nset)
-      error->all(FLERR, "Fix gcmc molindex is outside molecule template used by fix rigid/small");
   }
 
   // if shakeflag defined, check for SHAKE fix
@@ -641,11 +638,8 @@ void FixGCMC::init()
     fixshake = modify->get_fix_by_id(idshake);
     if (!fixshake) error->all(FLERR,"Fix gcmc shake fix ID {} does not exist", idshake);
     int tmp;
-    auto *shake_onemols = (Molecule **) fixshake->extract("onemol",tmp);
-    if (&onemols[imol_base] != shake_onemols)
+    if (&onemols[imol_base] != (Molecule **) fixshake->extract("onemol",tmp))
       error->all(FLERR,"Fix gcmc and fix shake not using same molecule template ID");
-    if (molindex >= shake_onemols[0]->nset)
-      error->all(FLERR, "Fix gcmc molindex is outside molecule template used by fix shake");
   }
 
   if (domain->dimension == 2)
