@@ -731,127 +731,203 @@ void PairLJLongTIP4PLongOMP::eval(int iifrom, int iito, ThrData * const thr)
   const double cut_coulsqplus = (cut_coul+2.0*qdist)*(cut_coul+2.0*qdist);
   const int vflag = vflag_global || vflag_atom;
 
-  int i,j,ii,jj,jnum,itype,jtype,itable;
-  int n,vlist[6];
-  int key;
-  int iH1,iH2,jH1,jH2;
-  double qtmp,xtmp,ytmp,ztmp,delx,dely,delz,fxtmp,fytmp,fztmp,evdwl,ecoul;
-  double fraction,table;
-  double r,r2inv,forcecoul,forcelj,cforce;
-  double factor_coul;
-  double grij,expm2,prefactor,t,erfc;
-  double fOx,fOy,fOz,fHx,fHy,fHz,fdx,fdy,fdz,v[6];
-  dbl3_t x1,x2,xH1,xH2;
-  int *ilist,*jlist,*numneigh,**firstneigh;
-  double rsq;
+  const double g2 = g_ewald_6*g_ewald_6, g6 = g2*g2*g2, g8 = g6*g2;
 
-  evdwl = ecoul = 0.0;
+  int *ilist = list->ilist;
+  int *numneigh = list->numneigh;
+  int **firstneigh = list->firstneigh;
 
-  int ni;
-  double *lj1i, *lj2i, *lj3i, *lj4i, *offseti;
-  double g2 = g_ewald_6*g_ewald_6, g6 = g2*g2*g2, g8 = g6*g2;
-
-  ilist = list->ilist;
-  numneigh = list->numneigh;
-  firstneigh = list->firstneigh;
-
-  // loop over neighbors of my atoms
-
-  for (ii = iifrom; ii < iito; ++ii) {
-    i = ilist[ii];
-    qtmp = q[i];
-    xtmp = x[i].x;
-    ytmp = x[i].y;
-    ztmp = x[i].z;
-    itype = type[i];
-    if (itype == typeO) {
-      if (hneigh_thr[i].a < 0) {
-        iH1 = atom->map(tag[i] + 1);
-        iH2 = atom->map(tag[i] + 2);
-        if (iH1 == -1 || iH2 == -1)
-          error->one(FLERR,"TIP4P hydrogen is missing");
-        if (type[iH1] != typeH || type[iH2] != typeH)
-          error->one(FLERR,"TIP4P hydrogen has incorrect atom type");
-        // set iH1,iH2 to closest image to O
-        iH1 = domain->closest_image(i,iH1);
-        iH2 = domain->closest_image(i,iH2);
-        compute_newsite_thr(x[i],x[iH1],x[iH2],newsite_thr[i]);
-        hneigh_thr[i].t = 1;
-        hneigh_thr[i].b = iH2;
-        hneigh_thr[i].a = iH1;
+  auto compute_tip4p_site = [&](int idx, dbl3_t &site_out, int &H1_out, int &H2_out) {
+    if (type[idx] == typeO) {
+      if (hneigh_thr[idx].a < 0) {
+        int H1 = atom->map(tag[idx] + 1);
+        int H2 = atom->map(tag[idx] + 2);
+        if (H1 == -1 || H2 == -1)
+          error->one(FLERR, "TIP4P hydrogen is missing");
+        if (type[H1] != typeH || type[H2] != typeH)
+          error->one(FLERR, "TIP4P hydrogen has incorrect atom type");
+        H1 = domain->closest_image(idx, H1);
+        H2 = domain->closest_image(idx, H2);
+        compute_newsite_thr(x[idx], x[H1], x[H2], newsite_thr[idx]);
+        hneigh_thr[idx].t = 1;
+        hneigh_thr[idx].b = H2;
+        hneigh_thr[idx].a = H1;
+        H1_out = H1;
+        H2_out = H2;
       } else {
-        iH1 = hneigh_thr[i].a;
-        iH2 = hneigh_thr[i].b;
-        if (hneigh_thr[i].t == 0) {
-          compute_newsite_thr(x[i],x[iH1],x[iH2],newsite_thr[i]);
-          hneigh_thr[i].t = 1;
+        H1_out = hneigh_thr[idx].a;
+        H2_out = hneigh_thr[idx].b;
+        if (hneigh_thr[idx].t == 0) {
+          compute_newsite_thr(x[idx], x[H1_out], x[H2_out], newsite_thr[idx]);
+          hneigh_thr[idx].t = 1;
         }
       }
-      x1 = newsite_thr[i];
-    } else x1 = x[i];
+      site_out = newsite_thr[idx];
+    } else {
+      site_out = x[idx];
+      H1_out = -1;
+      H2_out = -1;
+    }
+  };
 
-    jlist = firstneigh[i];
-    jnum = numneigh[i];
-    fxtmp=fytmp=fztmp=0.0;
-    offseti = offset[itype];
-    lj1i = lj1[itype]; lj2i = lj2[itype]; lj3i = lj3[itype]; lj4i = lj4[itype];
+  auto apply_tip4p_force_and_virial = [&](int idx, int itype, int H1, int H2, 
+                                          double delx, double dely, double delz, 
+                                          double cforce, double sign, 
+                                          double &fx_acc, double &fy_acc, double &fz_acc,
+                                          int &n, int &key, int *vlist, double *v) {
+    if (itype != typeO) {
+      fx_acc += sign * delx * cforce;
+      fy_acc += sign * dely * cforce;
+      fz_acc += sign * delz * cforce;
 
-    for (jj = 0; jj < jnum; jj++) {
-      j = jlist[jj];
-      ni = sbmask(j);
-      factor_coul = special_coul[ni];
+      if constexpr (EVFLAG) {
+        if (vflag) {
+          v[0] += sign * x[idx].x * delx * cforce;
+          v[1] += sign * x[idx].y * dely * cforce;
+          v[2] += sign * x[idx].z * delz * cforce;
+          v[3] += sign * x[idx].x * dely * cforce;
+          v[4] += sign * x[idx].x * delz * cforce;
+          v[5] += sign * x[idx].y * delz * cforce;
+          vlist[n++] = idx;
+        }
+      }
+    } else {
+      if constexpr (EVFLAG) {
+        if (vflag) key += (sign > 0 ? 1 : 2);
+      }
+      
+      double fdx = sign * delx * cforce;
+      double fdy = sign * dely * cforce;
+      double fdz = sign * delz * cforce;
+
+      double fOx = fdx * (1.0 - alpha);
+      double fOy = fdy * (1.0 - alpha);
+      double fOz = fdz * (1.0 - alpha);
+
+      double fHx = 0.5 * alpha * fdx;
+      double fHy = 0.5 * alpha * fdy;
+      double fHz = 0.5 * alpha * fdz;
+
+      fx_acc += fOx;
+      fy_acc += fOy;
+      fz_acc += fOz;
+
+      f[H1].x += fHx;
+      f[H1].y += fHy;
+      f[H1].z += fHz;
+
+      f[H2].x += fHx;
+      f[H2].y += fHy;
+      f[H2].z += fHz;
+
+      if constexpr (EVFLAG) {
+        if (vflag) {
+          dbl3_t xH1 = x[H1];
+          dbl3_t xH2 = x[H2];
+          v[0] += x[idx].x * fOx + xH1.x * fHx + xH2.x * fHx;
+          v[1] += x[idx].y * fOy + xH1.y * fHy + xH2.y * fHy;
+          v[2] += x[idx].z * fOz + xH1.z * fHz + xH2.z * fHz;
+          v[3] += x[idx].x * fOy + xH1.x * fHy + xH2.x * fHy;
+          v[4] += x[idx].x * fOz + xH1.x * fHz + xH2.x * fHz;
+          v[5] += x[idx].y * fOz + xH1.y * fHz + xH2.y * fHz;
+          vlist[n++] = idx;
+          vlist[n++] = H1;
+          vlist[n++] = H2;
+        }
+      }
+    }
+  };
+
+  for (int ii = iifrom; ii < iito; ++ii) {
+    int i = ilist[ii];
+    double qtmp = q[i];
+    double xtmp = x[i].x;
+    double ytmp = x[i].y;
+    double ztmp = x[i].z;
+    int itype = type[i];
+    
+    dbl3_t x1;
+    int iH1, iH2;
+    compute_tip4p_site(i, x1, iH1, iH2);
+
+    int *jlist = firstneigh[i];
+    int jnum = numneigh[i];
+    double fxtmp = 0.0, fytmp = 0.0, fztmp = 0.0;
+    
+    double *offseti = offset[itype];
+    double *lj1i = lj1[itype]; 
+    double *lj2i = lj2[itype]; 
+    double *lj3i = lj3[itype]; 
+    double *lj4i = lj4[itype];
+
+    for (int jj = 0; jj < jnum; jj++) {
+      int j = jlist[jj];
+      int ni = sbmask(j);
+      double factor_coul = special_coul[ni];
       j &= NEIGHMASK;
 
-      delx = xtmp - x[j].x;
-      dely = ytmp - x[j].y;
-      delz = ztmp - x[j].z;
-      rsq = delx*delx + dely*dely + delz*delz;
-      jtype = type[j];
+      double delx = xtmp - x[j].x;
+      double dely = ytmp - x[j].y;
+      double delz = ztmp - x[j].z;
+      double rsq = delx*delx + dely*dely + delz*delz;
+      int jtype = type[j];
 
       if (rsq < cut_ljsq[itype][jtype]) {           // lj
-        r2inv = 1.0/rsq;
-        if (ORDER6) {                   // long-range lj
-          if (!LJTABLE || rsq <= tabinnerdispsq) {
+        double r2inv = 1.0/rsq;
+        double forcelj = 0.0;
+        double evdwl = 0.0;
+
+        if constexpr (ORDER6) {                   // long-range lj
+          if constexpr (!LJTABLE) {
             double rn = r2inv*r2inv*r2inv;
             double x2 = g2*rsq, a2 = 1.0/x2;
             x2 = a2*exp(-x2)*lj4i[jtype];
             if (ni == 0) {
-              forcelj =
-                (rn*=rn)*lj1i[jtype]-g8*(((6.0*a2+6.0)*a2+3.0)*a2+1.0)*x2*rsq;
-              if (EFLAG)
-                evdwl = rn*lj3i[jtype]-g6*((a2+1.0)*a2+0.5)*x2;
+              forcelj = (rn*=rn)*lj1i[jtype]-g8*(((6.0*a2+6.0)*a2+3.0)*a2+1.0)*x2*rsq;
+              if constexpr (EFLAG) evdwl = rn*lj3i[jtype]-g6*((a2+1.0)*a2+0.5)*x2;
             } else {                  // special case
               double f = special_lj[ni], t = rn*(1.0-f);
-              forcelj = f*(rn *= rn)*lj1i[jtype]-
-                g8*(((6.0*a2+6.0)*a2+3.0)*a2+1.0)*x2*rsq+t*lj2i[jtype];
-              if (EFLAG)
-                evdwl = f*rn*lj3i[jtype]-g6*((a2+1.0)*a2+0.5)*x2+t*lj4i[jtype];
+              forcelj = f*(rn *= rn)*lj1i[jtype]-g8*(((6.0*a2+6.0)*a2+3.0)*a2+1.0)*x2*rsq+t*lj2i[jtype];
+              if constexpr (EFLAG) evdwl = f*rn*lj3i[jtype]-g6*((a2+1.0)*a2+0.5)*x2+t*lj4i[jtype];
             }
-          } else {                                        // table real space
-            union_int_float_t disp_t;
-            disp_t.f = rsq;
-            const int disp_k = (disp_t.i & ndispmask)>>ndispshiftbits;
-            double f_disp = (rsq-rdisptable[disp_k])*drdisptable[disp_k];
-            double rn = r2inv*r2inv*r2inv;
-            if (ni == 0) {
-              forcelj = (rn*=rn)*lj1i[jtype]-(fdisptable[disp_k]+f_disp*dfdisptable[disp_k])*lj4i[jtype];
-              if (EFLAG) evdwl = rn*lj3i[jtype]-(edisptable[disp_k]+f_disp*dedisptable[disp_k])*lj4i[jtype];
-            } else {                  // special case
-              double f = special_lj[ni], t = rn*(1.0-f);
-              forcelj = f*(rn *= rn)*lj1i[jtype]-(fdisptable[disp_k]+f_disp*dfdisptable[disp_k])*lj4i[jtype]+t*lj2i[jtype];
-              if (EFLAG) evdwl = f*rn*lj3i[jtype]-(edisptable[disp_k]+f_disp*dedisptable[disp_k])*lj4i[jtype]+t*lj4i[jtype];
+          } else {
+            if (rsq <= tabinnerdispsq) {
+              double rn = r2inv*r2inv*r2inv;
+              double x2 = g2*rsq, a2 = 1.0/x2;
+              x2 = a2*exp(-x2)*lj4i[jtype];
+              if (ni == 0) {
+                forcelj = (rn*=rn)*lj1i[jtype]-g8*(((6.0*a2+6.0)*a2+3.0)*a2+1.0)*x2*rsq;
+                if constexpr (EFLAG) evdwl = rn*lj3i[jtype]-g6*((a2+1.0)*a2+0.5)*x2;
+              } else {                  // special case
+                double f = special_lj[ni], t = rn*(1.0-f);
+                forcelj = f*(rn *= rn)*lj1i[jtype]-g8*(((6.0*a2+6.0)*a2+3.0)*a2+1.0)*x2*rsq+t*lj2i[jtype];
+                if constexpr (EFLAG) evdwl = f*rn*lj3i[jtype]-g6*((a2+1.0)*a2+0.5)*x2+t*lj4i[jtype];
+              }
+            } else {                                        // table real space
+              union_int_float_t disp_t;
+              disp_t.f = rsq;
+              const int disp_k = (disp_t.i & ndispmask)>>ndispshiftbits;
+              double f_disp = (rsq-rdisptable[disp_k])*drdisptable[disp_k];
+              double rn = r2inv*r2inv*r2inv;
+              if (ni == 0) {
+                forcelj = (rn*=rn)*lj1i[jtype]-(fdisptable[disp_k]+f_disp*dfdisptable[disp_k])*lj4i[jtype];
+                if constexpr (EFLAG) evdwl = rn*lj3i[jtype]-(edisptable[disp_k]+f_disp*dedisptable[disp_k])*lj4i[jtype];
+              } else {                  // special case
+                double f = special_lj[ni], t = rn*(1.0-f);
+                forcelj = f*(rn *= rn)*lj1i[jtype]-(fdisptable[disp_k]+f_disp*dfdisptable[disp_k])*lj4i[jtype]+t*lj2i[jtype];
+                if constexpr (EFLAG) evdwl = f*rn*lj3i[jtype]-(edisptable[disp_k]+f_disp*dedisptable[disp_k])*lj4i[jtype]+t*lj4i[jtype];
+              }
             }
           }
         } else {                      // cut lj
           double rn = r2inv*r2inv*r2inv;
           if (ni == 0) {
             forcelj = rn*(rn*lj1i[jtype]-lj2i[jtype]);
-            if (EFLAG) evdwl = rn*(rn*lj3i[jtype]-lj4i[jtype])-offseti[jtype];
+            if constexpr (EFLAG) evdwl = rn*(rn*lj3i[jtype]-lj4i[jtype])-offseti[jtype];
           } else {                    // special case
             double f = special_lj[ni];
             forcelj = f*rn*(rn*lj1i[jtype]-lj2i[jtype]);
-            if (EFLAG)
-              evdwl = f * (rn*(rn*lj3i[jtype]-lj4i[jtype])-offseti[jtype]);
+            if constexpr (EFLAG) evdwl = f * (rn*(rn*lj3i[jtype]-lj4i[jtype])-offseti[jtype]);
           }
         }
 
@@ -863,41 +939,22 @@ void PairLJLongTIP4PLongOMP::eval(int iifrom, int iito, ThrData * const thr)
         f[j].y -= dely*forcelj;
         f[j].z -= delz*forcelj;
 
-        if (EVFLAG) ev_tally_thr(this,i,j,nlocal, /* newton_pair = */ 1,
-                                 evdwl,0.0,forcelj,delx,dely,delz,thr);
+        if constexpr (EVFLAG) {
+          ev_tally_thr(this, i, j, nlocal, /* newton_pair = */ 1,
+                       evdwl, 0.0, forcelj, delx, dely, delz, thr);
+        }
       }
 
-
       // adjust rsq and delxyz for off-site O charge(s)
-      // ADDITIONAL REQEUST REQUIRED HERE!!!!!
-
       if (rsq < cut_coulsqplus) {
+        dbl3_t x2;
+        int jH1, jH2;
         if (itype == typeO || jtype == typeO) {
           if (jtype == typeO) {
-            if (hneigh_thr[j].a < 0) {
-              jH1 = atom->map(tag[j] + 1);
-              jH2 = atom->map(tag[j] + 2);
-              if (jH1 == -1 || jH2 == -1)
-                error->one(FLERR,"TIP4P hydrogen is missing");
-              if (type[jH1] != typeH || type[jH2] != typeH)
-                error->one(FLERR,"TIP4P hydrogen has incorrect atom type");
-              // set jH1,jH2 to closest image to O
-              jH1 = domain->closest_image(j,jH1);
-              jH2 = domain->closest_image(j,jH2);
-              compute_newsite_thr(x[j],x[jH1],x[jH2],newsite_thr[j]);
-              hneigh_thr[j].t = 1;
-              hneigh_thr[j].b = jH2;
-              hneigh_thr[j].a = jH1;
-            } else {
-              jH1 = hneigh_thr[j].a;
-              jH2 = hneigh_thr[j].b;
-              if (hneigh_thr[j].t == 0) {
-                compute_newsite_thr(x[j],x[jH1],x[jH2],newsite_thr[j]);
-                hneigh_thr[j].t = 1;
-              }
-            }
-            x2 = newsite_thr[j];
-          } else x2 = x[j];
+            compute_tip4p_site(j, x2, jH1, jH2);
+          } else {
+            x2 = x[j];
+          }
           delx = x1.x - x2.x;
           dely = x1.y - x2.y;
           delz = x1.z - x2.z;
@@ -905,177 +962,77 @@ void PairLJLongTIP4PLongOMP::eval(int iifrom, int iito, ThrData * const thr)
         }
 
         // test current rsq against cutoff and compute Coulombic force
-
         if (rsq < cut_coulsq && ORDER1) {
-          r2inv = 1.0 / rsq;
-          if (!CTABLE || rsq <= tabinnersq) {
-            r = sqrt(rsq);
-            grij = g_ewald * r;
-            expm2 = exp(-grij*grij);
-            t = 1.0 / (1.0 + EWALD_P*grij);
+          double r2inv = 1.0 / rsq;
+          double forcecoul = 0.0;
+          double prefactor = 0.0;
+          double ecoul = 0.0;
+          int itable = 0;
+          double fraction = 0.0;
+          double erfc = 0.0;
+
+          if constexpr (!CTABLE) {
+            double r = sqrt(rsq);
+            double grij = g_ewald * r;
+            double expm2 = exp(-grij*grij);
+            double t = 1.0 / (1.0 + EWALD_P*grij);
             erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
             prefactor = qqrd2e * qtmp*q[j]/r;
             forcecoul = prefactor * (erfc + EWALD_F*grij*expm2);
-            if (factor_coul < 1.0) {
-              forcecoul -= (1.0-factor_coul)*prefactor;
-            }
+            if (factor_coul < 1.0) forcecoul -= (1.0-factor_coul)*prefactor;
           } else {
-            union_int_float_t rsq_lookup;
-            rsq_lookup.f = rsq;
-            itable = rsq_lookup.i & ncoulmask;
-            itable >>= ncoulshiftbits;
-            fraction = ((double) rsq_lookup.f - rtable[itable]) * drtable[itable];
-            table = ftable[itable] + fraction*dftable[itable];
-            forcecoul = qtmp*q[j] * table;
-            if (factor_coul < 1.0) {
-              table = ctable[itable] + fraction*dctable[itable];
-              prefactor = qtmp*q[j] * table;
-              forcecoul -= (1.0-factor_coul)*prefactor;
+            if (rsq <= tabinnersq) {
+              double r = sqrt(rsq);
+              double grij = g_ewald * r;
+              double expm2 = exp(-grij*grij);
+              double t = 1.0 / (1.0 + EWALD_P*grij);
+              erfc = t * (A1+t*(A2+t*(A3+t*(A4+t*A5)))) * expm2;
+              prefactor = qqrd2e * qtmp*q[j]/r;
+              forcecoul = prefactor * (erfc + EWALD_F*grij*expm2);
+              if (factor_coul < 1.0) forcecoul -= (1.0-factor_coul)*prefactor;
+            } else {
+              union_int_float_t rsq_lookup;
+              rsq_lookup.f = rsq;
+              itable = rsq_lookup.i & ncoulmask;
+              itable >>= ncoulshiftbits;
+              fraction = ((double) rsq_lookup.f - rtable[itable]) * drtable[itable];
+              double table = ftable[itable] + fraction*dftable[itable];
+              forcecoul = qtmp*q[j] * table;
+              if (factor_coul < 1.0) {
+                table = ctable[itable] + fraction*dctable[itable];
+                prefactor = qtmp*q[j] * table;
+                forcecoul -= (1.0-factor_coul)*prefactor;
+              }
             }
           }
 
-          cforce = forcecoul * r2inv;
+          double cforce = forcecoul * r2inv;
 
-          //if (evflag) ev_tally(i,j,nlocal,newton_pair,
-          //               evdwl,0.0,cforce,delx,dely,delz);
-
-          // if i,j are not O atoms, force is applied directly
-          // if i or j are O atoms, force is on fictitious atom & partitioned
-          // force partitioning due to Feenstra, J Comp Chem, 20, 786 (1999)
-          // f_f = fictitious force, fO = f_f (1 - 2 alpha), fH = alpha f_f
-          // preserves total force and torque on water molecule
-          // virial = sum(r x F) where each water's atoms are near xi and xj
-          // vlist stores 2,4,6 atoms whose forces contribute to virial
-
-          if (EVFLAG && vflag) {
-            n = 0;
-            key = 0;
-          }
-
-          if (itype != typeO) {
-            fxtmp += delx * cforce;
-            fytmp += dely * cforce;
-            fztmp += delz * cforce;
-
-            if (EVFLAG && vflag) {
-              v[0] = x[i].x * delx * cforce;
-              v[1] = x[i].y * dely * cforce;
-              v[2] = x[i].z * delz * cforce;
-              v[3] = x[i].x * dely * cforce;
-              v[4] = x[i].x * delz * cforce;
-              v[5] = x[i].y * delz * cforce;
-              vlist[n++] = i;
-            }
-
-          } else {
-            if (EVFLAG && vflag) key++;
-            fdx = delx*cforce;
-            fdy = dely*cforce;
-            fdz = delz*cforce;
-
-            fOx = fdx*(1 - alpha);
-            fOy = fdy*(1 - alpha);
-            fOz = fdz*(1 - alpha);
-
-            fHx = 0.5 * alpha * fdx;
-            fHy = 0.5 * alpha * fdy;
-            fHz = 0.5 * alpha * fdz;
-
-            fxtmp += fOx;
-            fytmp += fOy;
-            fztmp += fOz;
-
-            f[iH1].x += fHx;
-            f[iH1].y += fHy;
-            f[iH1].z += fHz;
-
-            f[iH2].x += fHx;
-            f[iH2].y += fHy;
-            f[iH2].z += fHz;
-
-            if (EVFLAG && vflag) {
-              xH1 = x[iH1];
-              xH2 = x[iH2];
-              v[0] = x[i].x*fOx + xH1.x*fHx + xH2.x*fHx;
-              v[1] = x[i].y*fOy + xH1.y*fHy + xH2.y*fHy;
-              v[2] = x[i].z*fOz + xH1.z*fHz + xH2.z*fHz;
-              v[3] = x[i].x*fOy + xH1.x*fHy + xH2.x*fHy;
-              v[4] = x[i].x*fOz + xH1.x*fHz + xH2.x*fHz;
-              v[5] = x[i].y*fOz + xH1.y*fHz + xH2.y*fHz;
-              vlist[n++] = i;
-              vlist[n++] = iH1;
-              vlist[n++] = iH2;
-            }
-          }
-
-          if (jtype != typeO) {
-            f[j].x -= delx * cforce;
-            f[j].y -= dely * cforce;
-            f[j].z -= delz * cforce;
-
-            if (EVFLAG && vflag) {
-              v[0] -= x[j].x * delx * cforce;
-              v[1] -= x[j].y * dely * cforce;
-              v[2] -= x[j].z * delz * cforce;
-              v[3] -= x[j].x * dely * cforce;
-              v[4] -= x[j].x * delz * cforce;
-              v[5] -= x[j].y * delz * cforce;
-              vlist[n++] = j;
-            }
-
-          } else {
-            if (EVFLAG && vflag) key += 2;
-
-            fdx = -delx*cforce;
-            fdy = -dely*cforce;
-            fdz = -delz*cforce;
-
-            fOx = fdx*(1 - alpha);
-            fOy = fdy*(1 - alpha);
-            fOz = fdz*(1 - alpha);
-
-            fHx = 0.5 * alpha * fdx;
-            fHy = 0.5 * alpha * fdy;
-            fHz = 0.5 * alpha * fdz;
-
-            f[j].x += fOx;
-            f[j].y += fOy;
-            f[j].z += fOz;
-
-            f[jH1].x += fHx;
-            f[jH1].y += fHy;
-            f[jH1].z += fHz;
-
-            f[jH2].x += fHx;
-            f[jH2].y += fHy;
-            f[jH2].z += fHz;
-
-            if (EVFLAG && vflag) {
-              xH1 = x[jH1];
-              xH2 = x[jH2];
-              v[0] += x[j].x*fOx + xH1.x*fHx + xH2.x*fHx;
-              v[1] += x[j].y*fOy + xH1.y*fHy + xH2.y*fHy;
-              v[2] += x[j].z*fOz + xH1.z*fHz + xH2.z*fHz;
-              v[3] += x[j].x*fOy + xH1.x*fHy + xH2.x*fHy;
-              v[4] += x[j].x*fOz + xH1.x*fHz + xH2.x*fHz;
-              v[5] += x[j].y*fOz + xH1.y*fHz + xH2.y*fHz;
-              vlist[n++] = j;
-              vlist[n++] = jH1;
-              vlist[n++] = jH2;
-            }
-          }
-
-          if (EFLAG) {
-            if (!CTABLE || rsq <= tabinnersq)
+          if constexpr (EFLAG) {
+            if constexpr (!CTABLE) {
               ecoul = prefactor*erfc;
-            else {
-              table = etable[itable] + fraction*detable[itable];
-              ecoul = qtmp*q[j] * table;
+            } else {
+              if (rsq <= tabinnersq) {
+                ecoul = prefactor*erfc;
+              } else {
+                double table = etable[itable] + fraction*detable[itable];
+                ecoul = qtmp*q[j] * table;
+              }
             }
             if (factor_coul < 1.0) ecoul -= (1.0-factor_coul)*prefactor;
-          } else ecoul = 0.0;
+          }
 
-          if (EVFLAG) ev_tally_list_thr(this,key,vlist,v,ecoul,alpha,thr);
+          int vlist[6];
+          double v[6] = {};
+          int n = 0;
+          int key = 0;
+
+          apply_tip4p_force_and_virial(i, itype, iH1, iH2, delx, dely, delz, cforce, 1.0, fxtmp, fytmp, fztmp, n, key, vlist, v);
+          apply_tip4p_force_and_virial(j, jtype, jH1, jH2, delx, dely, delz, cforce, -1.0, f[j].x, f[j].y, f[j].z, n, key, vlist, v);
+
+          if constexpr (EVFLAG) {
+            ev_tally_list_thr(this, key, vlist, v, ecoul, alpha, thr);
+          }
         }
       }
     }
