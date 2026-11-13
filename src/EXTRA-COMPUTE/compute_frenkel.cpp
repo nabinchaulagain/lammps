@@ -573,74 +573,81 @@ void ComputeFrenkel::find_clusters()
 
 /****************************************************************************/
 
+void ComputeFrenkel::sort_and_remove_duplicates(tagint *&array, int &size, const char *name)
+{
+  if (size == 0) {
+    memory->destroy(array);
+    return;
+  }
+
+  qsort(array, size, sizeof(tagint), &compareIDs);
+
+  int unique_size = 0;
+  for (int i = 0; i < size; i++) {
+    if (i == 0 || array[i] != array[i - 1]) {
+      array[unique_size++] = array[i];
+    }
+  }
+
+  size = unique_size;
+
+  if (size == 0) {
+    memory->destroy(array);
+  } else {
+    memory->grow(array, size, name);
+  }
+}
+
 void ComputeFrenkel::find_occupied_clusters()
 {
-  tagint *local_occupied_cluster_ID;
+  tagint *local_occupied_cluster_ID = nullptr;
   int local_noccupied = 0;
-  for (int k = 0; k < nlatsites; k++)
-    if (clusterID[k] > 0) local_noccupied += 1;
-  memory->create(local_occupied_cluster_ID, local_noccupied, "ComputeFrenkel:occupied_cluster_ID");
 
-  // Assign occupied clusters to an array
-  int n = 0;
-  for (int k = 0; k < nlatsites; k++)
-    if (clusterID[k] > 0) local_occupied_cluster_ID[n++] = clusterID[k];
-  // sort, then remove duplicates (defects with more than one site involved)
-  qsort(local_occupied_cluster_ID, local_noccupied, sizeof(local_occupied_cluster_ID[0]),
-        &compareIDs);
-  tagint previous = (local_noccupied > 0 ? local_occupied_cluster_ID[0] : 0);
-  for (n = 1; n < local_noccupied; n++) {
-    if (previous <= 0) break;
-    // If previous entry is the same as this one, delete this entry
-    while (local_occupied_cluster_ID[n] == previous) {
-      for (int n1 = n; n1 < local_noccupied - 1; n1++)
-        local_occupied_cluster_ID[n1] = local_occupied_cluster_ID[n1 + 1];
-      local_occupied_cluster_ID[local_noccupied - 1] = -1;
+  for (int k = 0; k < nlatsites; k++) {
+    if (clusterID[k] > 0) {
+      local_noccupied++;
     }
-    previous = local_occupied_cluster_ID[n];
   }
-  // Shrink array so it doesn't include negative entries
-  for (n = 0; n < local_noccupied; n++)
-    if (local_occupied_cluster_ID[n] < 0) break;
-  local_noccupied = n;
-  memory->grow(local_occupied_cluster_ID, local_noccupied,
-               "ComputeFrenkel:reallocate_local_occupied_cluster_ID");
 
-  // Now make the array global (size will be number of clusters across ALL
-  // processes)
+  if (local_noccupied > 0) {
+    memory->create(local_occupied_cluster_ID, local_noccupied, "ComputeFrenkel:local_occupied_cluster_ID");
+    int n = 0;
+    for (int k = 0; k < nlatsites; k++) {
+      if (clusterID[k] > 0) {
+        local_occupied_cluster_ID[n++] = clusterID[k];
+      }
+    }
+    
+    sort_and_remove_duplicates(local_occupied_cluster_ID, local_noccupied, 
+                               "ComputeFrenkel:local_occupied_cluster_ID");
+  }
+
   MPI_Allreduce(&local_noccupied, &noccupied, 1, MPI_INT, MPI_SUM, world);
-  memory->destroy(occupied_cluster_ID);
-  memory->create(occupied_cluster_ID, noccupied, "ComputeFrenkel:occupied_cluster_ID");
-  int *nreceive = new int[comm->nprocs]();
-  MPI_Allgather(&local_noccupied, 1, MPI_INT, nreceive, 1, MPI_INT, world);
-  int displ;
-  MPI_Scan(&local_noccupied, &displ, 1, MPI_INT, MPI_SUM, world);
-  displ -= local_noccupied;
-  int *displacement = new int[comm->nprocs]();
-  MPI_Allgather(&displ, 1, MPI_INT, displacement, 1, MPI_INT, world);
-  MPI_Allgatherv(local_occupied_cluster_ID, local_noccupied, MPI_LMP_TAGINT, occupied_cluster_ID,
-                 nreceive, displacement, MPI_LMP_TAGINT, world);
-  delete[] nreceive;
-  delete[] displacement;
-  memory->destroy(local_occupied_cluster_ID);
 
-  // sort the big array and once again remove duplicates
-  qsort(occupied_cluster_ID, noccupied, sizeof(occupied_cluster_ID[0]), &compareIDs);
-  previous = (noccupied > 0 ? occupied_cluster_ID[0] : 0);
-  for (n = 1; n < noccupied; n++) {
-    if (previous <= 0) break;
-    // If previous entry is the same as this one, delete this entry
-    while (occupied_cluster_ID[n] == previous) {
-      for (int n1 = n; n1 < noccupied - 1; n1++)
-        occupied_cluster_ID[n1] = occupied_cluster_ID[n1 + 1];
-      occupied_cluster_ID[noccupied - 1] = -1;
-    }
-    previous = occupied_cluster_ID[n];
+  memory->destroy(occupied_cluster_ID);
+  if (noccupied > 0) {
+    memory->create(occupied_cluster_ID, noccupied, "ComputeFrenkel:occupied_cluster_ID");
+    
+    int *nreceive = new int[comm->nprocs]();
+    MPI_Allgather(&local_noccupied, 1, MPI_INT, nreceive, 1, MPI_INT, world);
+    
+    int displ;
+    MPI_Scan(&local_noccupied, &displ, 1, MPI_INT, MPI_SUM, world);
+    displ -= local_noccupied;
+    
+    int *displacement = new int[comm->nprocs]();
+    MPI_Allgather(&displ, 1, MPI_INT, displacement, 1, MPI_INT, world);
+    
+    MPI_Allgatherv(local_occupied_cluster_ID, local_noccupied, MPI_LMP_TAGINT, 
+                   occupied_cluster_ID, nreceive, displacement, MPI_LMP_TAGINT, world);
+    
+    delete[] nreceive;
+    delete[] displacement;
+    
+    sort_and_remove_duplicates(occupied_cluster_ID, noccupied, "ComputeFrenkel:occupied_cluster_ID");
   }
-  for (n = 0; n < noccupied; n++)
-    if (occupied_cluster_ID[n] < 0) break;
-  noccupied = n;
-  memory->grow(occupied_cluster_ID, noccupied, "ComputeFrenkel:reallocate_occupied_cluster_ID");
+
+  memory->destroy(local_occupied_cluster_ID);
 }
 
 /****************************************************************************/
