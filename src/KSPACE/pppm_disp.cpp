@@ -3338,105 +3338,102 @@ void PPPMDisp::calc_csum()
   csum = 0.0;
 
   int ntypes = atom->ntypes;
-  int i,j,k;
 
-  delete[] cii;
-  cii = new double[ntypes+1];
-  for (i = 0; i<=ntypes; i++) cii[i] = 0.0;
-  delete[] csumi;
-  csumi = new double[ntypes+1];
-  for (i = 0; i<=ntypes; i++) csumi[i] = 0.0;
-  int *neach = new int[ntypes+1];
-  for (i = 0; i<=ntypes; i++) neach[i] = 0;
+  // Assuming cii and csumi have been refactored to std::vector<double> in the class definition
+  cii.assign(ntypes + 1, 0.0);
+  csumi.assign(ntypes + 1, 0.0);
 
-  // following variables distinguish between arithmetic and geometric mixing
+  std::vector<int> neach(ntypes + 1, 0);
+  std::vector<double> coeff(ntypes + 1, 0.0);
 
+  // Precompute per-type coefficients to eliminate branches in the local loop
   if (termflag[1]) {
-    for (i = 1; i <= ntypes; i++)
-      cii[i] = B[i]*B[i];
-    int tmp;
-    for (i = 0; i < atom->nlocal; i++) {
-      tmp = atom->type[i];
-      neach[tmp]++;
-      csum += B[tmp]*B[tmp];
+    for (int i = 1; i <= ntypes; i++) {
+      cii[i] = B[i] * B[i];
+      coeff[i] = B[i] * B[i];
     }
   }
   if (termflag[2]) {
-    for (i = 1; i <= ntypes; i++)
-      cii[i] = 64.0/20.0*B[7*i+3]*B[7*i+3];
-    int tmp;
-    for (i = 0; i < atom->nlocal; i++) {
-      tmp = atom->type[i];
-      neach[tmp]++;
-      csum += 64.0/20.0*B[7*tmp+3]*B[7*tmp+3];
+    for (int i = 1; i <= ntypes; i++) {
+      cii[i] = 64.0 / 20.0 * B[7 * i + 3] * B[7 * i + 3];
+      coeff[i] = 64.0 / 20.0 * B[7 * i + 3] * B[7 * i + 3];
     }
   }
   if (termflag[3]) {
-    for (i = 1; i <= ntypes; i++)
-      for (j = 0; j < nsplit; j++)
-        cii[i] += B[j]*B[nsplit*i + j]*B[nsplit*i + j];
-    int tmp;
-    for (i = 0; i < atom->nlocal; i++) {
-      tmp = atom->type[i];
-      neach[tmp]++;
-      for (j = 0; j < nsplit; j++)
-        csum += B[j]*B[nsplit*tmp + j]*B[nsplit*tmp + j];
+    for (int i = 1; i <= ntypes; i++) {
+      double sum = 0.0;
+      for (int j = 0; j < nsplit; j++) {
+        sum += B[j] * B[nsplit * i + j] * B[nsplit * i + j];
+      }
+      cii[i] = sum;
+      coeff[i] = sum;
     }
   }
 
-  double tmp2;
-  MPI_Allreduce(&csum,&tmp2,1,MPI_DOUBLE,MPI_SUM,world);
-  csum = tmp2;
+  // Single branch-free loop over local atoms
+  for (int i = 0; i < atom->nlocal; i++) {
+    int tmp = atom->type[i];
+    neach[tmp]++;
+    csum += coeff[tmp];
+  }
+
+  // MPI reduction using a cleanly scoped local variable
+  double csum_recv = csum;
+  MPI_Allreduce(&csum_recv, &csum, 1, MPI_DOUBLE, MPI_SUM, world);
   csumflag = 1;
 
-  int *neach_all = new int[ntypes+1];
-  MPI_Allreduce(neach,neach_all,ntypes+1,MPI_INT,MPI_SUM,world);
+  std::vector<int> neach_all(ntypes + 1, 0);
+  MPI_Allreduce(neach.data(), neach_all.data(), ntypes + 1, MPI_INT, MPI_SUM, world);
 
-  // copmute csumij and csumi
-
-  double d1, d2;
-
+  // Algorithmic optimization: O(ntypes) instead of O(ntypes^2)
   if (termflag[1]) {
-    for (i=1; i<=ntypes; i++) {
-      for (j=1; j<=ntypes; j++) {
-        csumi[i] += neach_all[j]*B[i]*B[j];
-        d1 = neach_all[i]*B[i];
-        d2 = neach_all[j]*B[j];
-        csumij += d1*d2;
-        //csumij += neach_all[i]*neach_all[j]*B[i]*B[j];
-      }
+    double sumB = 0.0;
+    for (int j = 1; j <= ntypes; j++) {
+      sumB += neach_all[j] * B[j];
     }
+    for (int i = 1; i <= ntypes; i++) {
+      csumi[i] += B[i] * sumB;
+    }
+    csumij += sumB * sumB;
   }
 
   if (termflag[2]) {
-    for (i=1; i<=ntypes; i++) {
-      for (j=1; j<=ntypes; j++) {
-        for (k=0; k<=6; k++) {
-          csumi[i] += neach_all[j]*B[7*i + k]*B[7*(j+1)-k-1];
-          d1 = neach_all[i]*B[7*i + k];
-          d2 = neach_all[j]*B[7*(j+1)-k-1];
-          csumij += d1*d2;
-          //csumij += neach_all[i]*neach_all[j]*B[7*i + k]*B[7*(j+1)-k-1];
-        }
+    double S[7] = {0.0};
+    for (int k = 0; k <= 6; k++) {
+      for (int j = 1; j <= ntypes; j++) {
+        S[k] += neach_all[j] * B[7 * j + 6 - k];
+      }
+    }
+    for (int i = 1; i <= ntypes; i++) {
+      for (int k = 0; k <= 6; k++) {
+        csumi[i] += B[7 * i + k] * S[k];
+      }
+    }
+    for (int i = 1; i <= ntypes; i++) {
+      for (int k = 0; k <= 6; k++) {
+        csumij += neach_all[i] * B[7 * i + k] * S[k];
       }
     }
   }
 
   if (termflag[3]) {
-    for (i=1; i<=ntypes; i++) {
-      for (j=1; j<=ntypes; j++) {
-        for (k=0; k<nsplit; k++) {
-          csumi[i] += neach_all[j]*B[k]*B[nsplit*i+k]*B[nsplit*j+k];
-          d1 = neach_all[i]*B[nsplit*i+k];
-          d2 = neach_all[j]*B[nsplit*j+k];
-          csumij += B[k]*d1*d2;
-        }
+    std::vector<double> S(nsplit, 0.0);
+    for (int k = 0; k < nsplit; k++) {
+      for (int j = 1; j <= ntypes; j++) {
+        S[k] += neach_all[j] * B[k] * B[nsplit * j + k];
+      }
+    }
+    for (int i = 1; i <= ntypes; i++) {
+      for (int k = 0; k < nsplit; k++) {
+        csumi[i] += B[nsplit * i + k] * S[k];
+      }
+    }
+    for (int i = 1; i <= ntypes; i++) {
+      for (int k = 0; k < nsplit; k++) {
+        csumij += neach_all[i] * B[nsplit * i + k] * S[k];
       }
     }
   }
-
-  delete[] neach;
-  delete[] neach_all;
 }
 
 /* ----------------------------------------------------------------------
