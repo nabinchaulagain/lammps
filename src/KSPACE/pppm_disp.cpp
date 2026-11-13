@@ -1668,230 +1668,185 @@ int PPPMDisp::check_convergence(double** A, double** Q, double** A0,
    allocate memory that depends on # of K-vectors and order
 ------------------------------------------------------------------------- */
 
-void _noopt PPPMDisp::allocate()
+void PPPMDisp::allocate()
 {
-  // --------------------------------------
-  // Coulomb grids
-  // --------------------------------------
-
   if (termflag[0]) {
+    setup_coulomb_grid();
+  }
 
-    // create ghost grid object for rho and electric field communication
-    // returns local owned and ghost grid bounds
-    // setup communication patterns and buffers
+  if (termflag[1] || termflag[2] || termflag[3]) {
+    setup_dispersion_grid();
+  }
+}
 
-    gc = new Grid3d(lmp,world,nx_pppm,ny_pppm,nz_pppm);
-    gc->set_distance(0.5*neighbor->skin + qdist);
-    gc->set_stencil_atom(-nlower,nupper);
-    gc->set_shift_atom(shiftatom_lo,shiftatom_hi);
-    gc->set_zfactor(slab_volfactor);
+void PPPMDisp::setup_coulomb_grid()
+{
+  gc = new Grid3d(lmp,world,nx_pppm,ny_pppm,nz_pppm);
+  gc->set_distance(0.5*neighbor->skin + qdist);
+  gc->set_stencil_atom(-nlower,nupper);
+  gc->set_shift_atom(shiftatom_lo,shiftatom_hi);
+  gc->set_zfactor(slab_volfactor);
 
-    gc->setup_grid(nxlo_in,nxhi_in,nylo_in,nyhi_in,nzlo_in,nzhi_in,
-                   nxlo_out,nxhi_out,nylo_out,nyhi_out,nzlo_out,nzhi_out);
+  gc->setup_grid(nxlo_in,nxhi_in,nylo_in,nyhi_in,nzlo_in,nzhi_in,
+                 nxlo_out,nxhi_out,nylo_out,nyhi_out,nzlo_out,nzhi_out);
 
-    gc->setup_comm(ngc_buf1,ngc_buf2);
+  gc->setup_comm(ngc_buf1,ngc_buf2);
 
   if (differentiation_flag) npergrid = 1;
-    else npergrid = 3;
+  else npergrid = 3;
 
-    memory->create(gc_buf1,npergrid*ngc_buf1,"pppm/disp:gc_buf1");
-    memory->create(gc_buf2,npergrid*ngc_buf2,"pppm/disp:gc_buf2");
+  memory->create(gc_buf1,npergrid*ngc_buf1,"pppm/disp:gc_buf1");
+  memory->create(gc_buf2,npergrid*ngc_buf2,"pppm/disp:gc_buf2");
 
-    // tally local grid sizes
-    // ngrid = count of owned+ghost grid cells on this proc
-    // nfft_brick = FFT points in 3d brick-decomposition on this proc
-    //              same as count of owned grid cells
-    // nfft = FFT points in x-pencil FFT decomposition on this proc
-    // nfft_both = greater of nfft and nfft_brick
+  ngrid = (nxhi_out-nxlo_out+1) * (nyhi_out-nylo_out+1) *
+    (nzhi_out-nzlo_out+1);
 
-    ngrid = (nxhi_out-nxlo_out+1) * (nyhi_out-nylo_out+1) *
-      (nzhi_out-nzlo_out+1);
+  nfft_brick = (nxhi_in-nxlo_in+1) * (nyhi_in-nylo_in+1) *
+    (nzhi_in-nzlo_in+1);
 
-    nfft_brick = (nxhi_in-nxlo_in+1) * (nyhi_in-nylo_in+1) *
-      (nzhi_in-nzlo_in+1);
+  nfft = (nxhi_fft-nxlo_fft+1) * (nyhi_fft-nylo_fft+1) *
+    (nzhi_fft-nzlo_fft+1);
 
-    nfft = (nxhi_fft-nxlo_fft+1) * (nyhi_fft-nylo_fft+1) *
-      (nzhi_fft-nzlo_fft+1);
+  nfft_both = MAX(nfft,nfft_brick);
 
-    nfft_both = MAX(nfft,nfft_brick);
+  memory->create(work1,2*nfft_both,"pppm/disp:work1");
+  memory->create(work2,2*nfft_both,"pppm/disp:work2");
 
-    // allocate distributed grid data
+  memory->create1d_offset(fkx,nxlo_fft,nxhi_fft,"pppm/disp:fkx");
+  memory->create1d_offset(fky,nylo_fft,nyhi_fft,"pppm/disp:fky");
+  memory->create1d_offset(fkz,nzlo_fft,nzhi_fft,"pppm/disp:fkz");
 
-    memory->create(work1,2*nfft_both,"pppm/disp:work1");
-    memory->create(work2,2*nfft_both,"pppm/disp:work2");
+  memory->create1d_offset(fkx2,nxlo_fft,nxhi_fft,"pppm/disp:fkx2");
+  memory->create1d_offset(fky2,nylo_fft,nyhi_fft,"pppm/disp:fky2");
+  memory->create1d_offset(fkz2,nzlo_fft,nzhi_fft,"pppm/disp:fkz2");
 
-    memory->create1d_offset(fkx,nxlo_fft,nxhi_fft,"pppm/disp:fkx");
-    memory->create1d_offset(fky,nylo_fft,nyhi_fft,"pppm/disp:fky");
-    memory->create1d_offset(fkz,nzlo_fft,nzhi_fft,"pppm/disp:fkz");
+  memory->create(gf_b,order,"pppm/disp:gf_b");
+  memory->create2d_offset(rho1d,3,-order/2,order/2,"pppm/disp:rho1d");
+  memory->create2d_offset(rho_coeff,order,(1-order)/2,order/2,"pppm/disp:rho_coeff");
+  memory->create2d_offset(drho1d,3,-order/2,order/2,"pppm/disp:rho1d");
+  memory->create2d_offset(drho_coeff,order,(1-order)/2,order/2,
+                          "pppm/disp:drho_coeff");
 
-    memory->create1d_offset(fkx2,nxlo_fft,nxhi_fft,"pppm/disp:fkx2");
-    memory->create1d_offset(fky2,nylo_fft,nyhi_fft,"pppm/disp:fky2");
-    memory->create1d_offset(fkz2,nzlo_fft,nzhi_fft,"pppm/disp:fkz2");
+  memory->create(greensfn,nfft_both,"pppm/disp:greensfn");
+  memory->create(vg,nfft_both,6,"pppm/disp:vg");
+  memory->create(vg2,nfft_both,3,"pppm/disp:vg2");
 
-    memory->create(gf_b,order,"pppm/disp:gf_b");
-    memory->create2d_offset(rho1d,3,-order/2,order/2,"pppm/disp:rho1d");
-    memory->create2d_offset(rho_coeff,order,(1-order)/2,order/2,"pppm/disp:rho_coeff");
-    memory->create2d_offset(drho1d,3,-order/2,order/2,"pppm/disp:rho1d");
-    memory->create2d_offset(drho_coeff,order,(1-order)/2,order/2,
-                            "pppm/disp:drho_coeff");
+  memory->create3d_offset(density_brick,nzlo_out,nzhi_out,nylo_out,nyhi_out,
+                          nxlo_out,nxhi_out,"pppm/disp:density_brick");
+  memory->create(density_fft,nfft_both,"pppm/disp:density_fft");
 
-    memory->create(greensfn,nfft_both,"pppm/disp:greensfn");
-    memory->create(vg,nfft_both,6,"pppm/disp:vg");
-    memory->create(vg2,nfft_both,3,"pppm/disp:vg2");
-
-    memory->create3d_offset(density_brick,nzlo_out,nzhi_out,nylo_out,nyhi_out,
-                            nxlo_out,nxhi_out,"pppm/disp:density_brick");
-    memory->create(density_fft,nfft_both,"pppm/disp:density_fft");
-
-    if (differentiation_flag == 1) {
-      memory->create3d_offset(u_brick,nzlo_out,nzhi_out,nylo_out,nyhi_out,
-                              nxlo_out,nxhi_out,"pppm/disp:u_brick");
-      memory->create(sf_precoeff1,nfft_both,"pppm/disp:sf_precoeff1");
-      memory->create(sf_precoeff2,nfft_both,"pppm/disp:sf_precoeff2");
-      memory->create(sf_precoeff3,nfft_both,"pppm/disp:sf_precoeff3");
-      memory->create(sf_precoeff4,nfft_both,"pppm/disp:sf_precoeff4");
-      memory->create(sf_precoeff5,nfft_both,"pppm/disp:sf_precoeff5");
-      memory->create(sf_precoeff6,nfft_both,"pppm/disp:sf_precoeff6");
-
-    } else {
-      memory->create3d_offset(vdx_brick,nzlo_out,nzhi_out,nylo_out,nyhi_out,
-                              nxlo_out,nxhi_out,"pppm/disp:vdx_brick");
-      memory->create3d_offset(vdy_brick,nzlo_out,nzhi_out,nylo_out,nyhi_out,
-                              nxlo_out,nxhi_out,"pppm/disp:vdy_brick");
-      memory->create3d_offset(vdz_brick,nzlo_out,nzhi_out,nylo_out,nyhi_out,
-                              nxlo_out,nxhi_out,"pppm/disp:vdz_brick");
+  if (differentiation_flag == 1) {
+    memory->create3d_offset(u_brick,nzlo_out,nzhi_out,nylo_out,nyhi_out,
+                            nxlo_out,nxhi_out,"pppm/disp:u_brick");
+    for (int i = 1; i <= 6; i++) {
+      memory->create(sf_precoeff[i],nfft_both,"pppm/disp:sf_precoeff");
     }
-
-    // create 2 FFTs and a Remap
-    // 1st FFT keeps data in FFT decomposition
-    // 2nd FFT returns data in 3d brick decomposition
-    // remap takes data from 3d brick to FFT decomposition
-
-    int tmp;
-
-    fft1 = new FFT3d(lmp,world,nx_pppm,ny_pppm,nz_pppm,
-                     nxlo_fft,nxhi_fft,nylo_fft,nyhi_fft,nzlo_fft,nzhi_fft,
-                     nxlo_fft,nxhi_fft,nylo_fft,nyhi_fft,nzlo_fft,nzhi_fft,
-                     0,0,&tmp,collective_flag,nonblocking_flag);
-
-    fft2 = new FFT3d(lmp,world,nx_pppm,ny_pppm,nz_pppm,
-                     nxlo_fft,nxhi_fft,nylo_fft,nyhi_fft,nzlo_fft,nzhi_fft,
-                     nxlo_in,nxhi_in,nylo_in,nyhi_in,nzlo_in,nzhi_in,
-                     0,0,&tmp,collective_flag,nonblocking_flag);
-
-    remap = new Remap(lmp,world,
-                      nxlo_in,nxhi_in,nylo_in,nyhi_in,nzlo_in,nzhi_in,
-                      nxlo_fft,nxhi_fft,nylo_fft,nyhi_fft,nzlo_fft,nzhi_fft,
-                      1,0,0,FFT_PRECISION,collective_flag,nonblocking_flag);
+  } else {
+    memory->create3d_offset(vdx_brick,nzlo_out,nzhi_out,nylo_out,nyhi_out,
+                            nxlo_out,nxhi_out,"pppm/disp:vdx_brick");
+    memory->create3d_offset(vdy_brick,nzlo_out,nzhi_out,nylo_out,nyhi_out,
+                            nxlo_out,nxhi_out,"pppm/disp:vdy_brick");
+    memory->create3d_offset(vdz_brick,nzlo_out,nzhi_out,nylo_out,nyhi_out,
+                            nxlo_out,nxhi_out,"pppm/disp:vdz_brick");
   }
 
-  // --------------------------------------
-  // allocations common to all dispersion options
-  // --------------------------------------
+  int tmp;
 
-  if (termflag[1] + termflag[2] + termflag[3]) {
+  fft1 = new FFT3d(lmp,world,nx_pppm,ny_pppm,nz_pppm,
+                   nxlo_fft,nxhi_fft,nylo_fft,nyhi_fft,nzlo_fft,nzhi_fft,
+                   nxlo_fft,nxhi_fft,nylo_fft,nyhi_fft,nzlo_fft,nzhi_fft,
+                   0,0,&tmp,collective_flag,nonblocking_flag);
 
-    // create ghost grid object for dispersion communication
-    // returns local owned and ghost grid bounds
-    // setup communication patterns and buffers
+  fft2 = new FFT3d(lmp,world,nx_pppm,ny_pppm,nz_pppm,
+                   nxlo_fft,nxhi_fft,nylo_fft,nyhi_fft,nzlo_fft,nzhi_fft,
+                   nxlo_in,nxhi_in,nylo_in,nyhi_in,nzlo_in,nzhi_in,
+                   0,0,&tmp,collective_flag,nonblocking_flag);
 
-    gc6 = new Grid3d(lmp,world,nx_pppm_6,ny_pppm_6,nz_pppm_6);
-    gc6->set_distance(0.5*neighbor->skin + qdist);
-    gc6->set_stencil_atom(-nlower_6,nupper_6);
-    gc6->set_shift_atom(shiftatom_lo_6,shiftatom_hi_6);
-    gc6->set_zfactor(slab_volfactor);
+  remap = new Remap(lmp,world,
+                    nxlo_in,nxhi_in,nylo_in,nyhi_in,nzlo_in,nzhi_in,
+                    nxlo_fft,nxhi_fft,nylo_fft,nyhi_fft,nzlo_fft,nzhi_fft,
+                    1,0,0,FFT_PRECISION,collective_flag,nonblocking_flag);
+}
 
-    gc6->setup_grid(nxlo_in_6,nxhi_in_6,nylo_in_6,nyhi_in_6,nzlo_in_6,nzhi_in_6,
-                    nxlo_out_6,nxhi_out_6,nylo_out_6,nyhi_out_6,nzlo_out_6,nzhi_out_6);
+void PPPMDisp::setup_dispersion_grid()
+{
+  gc6 = new Grid3d(lmp,world,nx_pppm_6,ny_pppm_6,nz_pppm_6);
+  gc6->set_distance(0.5*neighbor->skin + qdist);
+  gc6->set_stencil_atom(-nlower_6,nupper_6);
+  gc6->set_shift_atom(shiftatom_lo_6,shiftatom_hi_6);
+  gc6->set_zfactor(slab_volfactor);
 
-    gc6->setup_comm(ngc6_buf1,ngc6_buf2);
+  gc6->setup_grid(nxlo_in_6,nxhi_in_6,nylo_in_6,nyhi_in_6,nzlo_in_6,nzhi_in_6,
+                  nxlo_out_6,nxhi_out_6,nylo_out_6,nyhi_out_6,nzlo_out_6,nzhi_out_6);
 
-    if (termflag[1]) {
-      if (differentiation_flag) npergrid6 = 1;
-      else npergrid6 = 3;
-    } else if (termflag[2]) {
-      if (differentiation_flag) npergrid6 = 7;
-      else npergrid6 = 21;
-    } else if (termflag[3]) {
-      if (differentiation_flag) npergrid6 = 1*nsplit_alloc;
-      else npergrid6 = 3*nsplit_alloc;
-    }
-
-    memory->create(gc6_buf1,npergrid6*ngc6_buf1,"pppm:gc_buf1");
-    memory->create(gc6_buf2,npergrid6*ngc6_buf2,"pppm:gc_buf2");
-
-    // tally local grid sizes
-    // ngrid = count of owned+ghost grid cells on this proc
-    // nfft_brick = FFT points in 3d brick-decomposition on this proc
-    //              same as count of owned grid cells
-    // nfft = FFT points in x-pencil FFT decomposition on this proc
-    // nfft_both = greater of nfft and nfft_brick
-
-    ngrid_6 = (nxhi_out_6-nxlo_out_6+1) * (nyhi_out_6-nylo_out_6+1) *
-      (nzhi_out_6-nzlo_out_6+1);
-
-    nfft_brick_6 = (nxhi_in_6-nxlo_in_6+1) * (nyhi_in_6-nylo_in_6+1) *
-      (nzhi_in_6-nzlo_in_6+1);
-
-    nfft_6 = (nxhi_fft_6-nxlo_fft_6+1) * (nyhi_fft_6-nylo_fft_6+1) *
-      (nzhi_fft_6-nzlo_fft_6+1);
-
-    nfft_both_6 = MAX(nfft_6,nfft_brick_6);
-
-    // create 2 FFTs and a Remap
-    // 1st FFT keeps data in FFT decomposition
-    // 2nd FFT returns data in 3d brick decomposition
-    // remap takes data from 3d brick to FFT decomposition
-
-    int tmp;
-
-    fft1_6 =
-      new FFT3d(lmp,world,nx_pppm_6,ny_pppm_6,nz_pppm_6,
-                nxlo_fft_6,nxhi_fft_6,nylo_fft_6,nyhi_fft_6,nzlo_fft_6,nzhi_fft_6,
-                nxlo_fft_6,nxhi_fft_6,nylo_fft_6,nyhi_fft_6,nzlo_fft_6,nzhi_fft_6,
-                0,0,&tmp,collective_flag,nonblocking_flag);
-
-    fft2_6 =
-      new FFT3d(lmp,world,nx_pppm_6,ny_pppm_6,nz_pppm_6,
-                nxlo_fft_6,nxhi_fft_6,nylo_fft_6,nyhi_fft_6,nzlo_fft_6,nzhi_fft_6,
-                nxlo_in_6,nxhi_in_6,nylo_in_6,nyhi_in_6,nzlo_in_6,nzhi_in_6,
-                0,0,&tmp,collective_flag,nonblocking_flag);
-
-    remap_6 =
-      new Remap(lmp,world,
-                nxlo_in_6,nxhi_in_6,nylo_in_6,nyhi_in_6,nzlo_in_6,nzhi_in_6,
-                nxlo_fft_6,nxhi_fft_6,nylo_fft_6,nyhi_fft_6,nzlo_fft_6,nzhi_fft_6,
-                1,0,0,FFT_PRECISION,collective_flag,nonblocking_flag);
-  }
-
-  // --------------------------------------
-  // dispersion grids with geometric mixing
-  // --------------------------------------
+  gc6->setup_comm(ngc6_buf1,ngc6_buf2);
 
   if (termflag[1]) {
-    memory->create(work1_6,2*nfft_both_6,"pppm/disp:work1_6");
-    memory->create(work2_6,2*nfft_both_6,"pppm/disp:work2_6");
+    if (differentiation_flag) npergrid6 = 1;
+    else npergrid6 = 3;
+  } else if (termflag[2]) {
+    if (differentiation_flag) npergrid6 = 7;
+    else npergrid6 = 21;
+  } else if (termflag[3]) {
+    if (differentiation_flag) npergrid6 = 1*nsplit_alloc;
+    else npergrid6 = 3*nsplit_alloc;
+  }
 
-    memory->create1d_offset(fkx_6,nxlo_fft_6,nxhi_fft_6,"pppm/disp:fkx_6");
-    memory->create1d_offset(fky_6,nylo_fft_6,nyhi_fft_6,"pppm/disp:fky_6");
-    memory->create1d_offset(fkz_6,nzlo_fft_6,nzhi_fft_6,"pppm/disp:fkz_6");
+  memory->create(gc6_buf1,npergrid6*ngc6_buf1,"pppm:gc_buf1");
+  memory->create(gc6_buf2,npergrid6*ngc6_buf2,"pppm:gc_buf2");
 
-    memory->create1d_offset(fkx2_6,nxlo_fft_6,nxhi_fft_6,"pppm/disp:fkx2_6");
-    memory->create1d_offset(fky2_6,nylo_fft_6,nyhi_fft_6,"pppm/disp:fky2_6");
-    memory->create1d_offset(fkz2_6,nzlo_fft_6,nzhi_fft_6,"pppm/disp:fkz2_6");
+  ngrid_6 = (nxhi_out_6-nxlo_out_6+1) * (nyhi_out_6-nylo_out_6+1) *
+    (nzhi_out_6-nzlo_out_6+1);
 
-    memory->create(gf_b_6,order_6,"pppm/disp:gf_b_6");
-    memory->create2d_offset(rho1d_6,3,-order_6/2,order_6/2,"pppm/disp:rho1d_6");
-    memory->create2d_offset(rho_coeff_6,order_6,(1-order_6)/2,order_6/2,
-                            "pppm/disp:rho_coeff_6");
-    memory->create2d_offset(drho1d_6,3,-order_6/2,order_6/2,"pppm/disp:drho1d_6");
-    memory->create2d_offset(drho_coeff_6,order_6,(1-order_6)/2,order_6/2,
-                            "pppm/disp:drho_coeff_6");
+  nfft_brick_6 = (nxhi_in_6-nxlo_in_6+1) * (nyhi_in_6-nylo_in_6+1) *
+    (nzhi_in_6-nzlo_in_6+1);
 
-    memory->create(greensfn_6,nfft_both_6,"pppm/disp:greensfn_6");
-    memory->create(vg_6,nfft_both_6,6,"pppm/disp:vg_6");
-    memory->create(vg2_6,nfft_both_6,3,"pppm/disp:vg2_6");
+  nfft_6 = (nxhi_fft_6-nxlo_fft_6+1) * (nyhi_fft_6-nylo_fft_6+1) *
+    (nzhi_fft_6-nzlo_fft_6+1);
 
+  nfft_both_6 = MAX(nfft_6,nfft_brick_6);
+
+  memory->create(work1_6,2*nfft_both_6,"pppm/disp:work1_6");
+  memory->create(work2_6,2*nfft_both_6,"pppm/disp:work2_6");
+
+  memory->create1d_offset(fkx_6,nxlo_fft_6,nxhi_fft_6,"pppm/disp:fkx_6");
+  memory->create1d_offset(fky_6,nylo_fft_6,nyhi_fft_6,"pppm/disp:fky_6");
+  memory->create1d_offset(fkz_6,nzlo_fft_6,nzhi_fft_6,"pppm/disp:fkz_6");
+
+  memory->create1d_offset(fkx2_6,nxlo_fft_6,nxhi_fft_6,"pppm/disp:fkx2_6");
+  memory->create1d_offset(fky2_6,nylo_fft_6,nyhi_fft_6,"pppm/disp:fky2_6");
+  memory->create1d_offset(fkz2_6,nzlo_fft_6,nzhi_fft_6,"pppm/disp:fkz2_6");
+
+  memory->create(gf_b_6,order_6,"pppm/disp:gf_b_6");
+  memory->create2d_offset(rho1d_6,3,-order_6/2,order_6/2,"pppm/disp:rho1d_6");
+  memory->create2d_offset(rho_coeff_6,order_6,(1-order_6)/2,order_6/2,
+                          "pppm/disp:rho_coeff_6");
+  memory->create2d_offset(drho1d_6,3,-order_6/2,order_6/2,"pppm/disp:drho1d_6");
+  memory->create2d_offset(drho_coeff_6,order_6,(1-order_6)/2,order_6/2,
+                          "pppm/disp:drho_coeff_6");
+
+  memory->create(greensfn_6,nfft_both_6,"pppm/disp:greensfn_6");
+  memory->create(vg_6,nfft_both_6,6,"pppm/disp:vg_6");
+  memory->create(vg2_6,nfft_both_6,3,"pppm/disp:vg2_6");
+
+  int tmp;
+
+  fft1_6 = new FFT3d(lmp,world,nx_pppm_6,ny_pppm_6,nz_pppm_6,
+                     nxlo_fft_6,nxhi_fft_6,nylo_fft_6,nyhi_fft_6,nzlo_fft_6,nzhi_fft_6,
+                     nxlo_fft_6,nxhi_fft_6,nylo_fft_6,nyhi_fft_6,nzlo_fft_6,nzhi_fft_6,
+                     0,0,&tmp,collective_flag,nonblocking_flag);
+
+  fft2_6 = new FFT3d(lmp,world,nx_pppm_6,ny_pppm_6,nz_pppm_6,
+                     nxlo_fft_6,nxhi_fft_6,nylo_fft_6,nyhi_fft_6,nzlo_fft_6,nzhi_fft_6,
+                     nxlo_in_6,nxhi_in_6,nylo_in_6,nyhi_in_6,nzlo_in_6,nzhi_in_6,
+                     0,0,&tmp,collective_flag,nonblocking_flag);
+
+  remap_6 = new Remap(lmp,world,
+                      nxlo_in_6,nxhi_in_6,nylo_in_6,nyhi_in_6,nzlo_in_6,nzhi_in_6,
+                      nxlo_fft_6,nxhi_fft_6,nylo_fft_6,nyhi_fft_6,nzlo_fft_6,nzhi_fft_6,
+                      1,0,0,FFT_PRECISION,collective_flag,nonblocking_flag);
+
+  if (termflag[1]) {
     memory->create3d_offset(density_brick_g,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
                             nxlo_out_6,nxhi_out_6,"pppm/disp:density_brick_g");
     memory->create(density_fft_g,nfft_both_6,"pppm/disp:density_fft_g");
@@ -1899,14 +1854,9 @@ void _noopt PPPMDisp::allocate()
     if (differentiation_flag == 1) {
       memory->create3d_offset(u_brick_g,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
                               nxlo_out_6,nxhi_out_6,"pppm/disp:u_brick_g");
-
-      memory->create(sf_precoeff1_6,nfft_both_6,"pppm/disp:sf_precoeff1_6");
-      memory->create(sf_precoeff2_6,nfft_both_6,"pppm/disp:sf_precoeff2_6");
-      memory->create(sf_precoeff3_6,nfft_both_6,"pppm/disp:sf_precoeff3_6");
-      memory->create(sf_precoeff4_6,nfft_both_6,"pppm/disp:sf_precoeff4_6");
-      memory->create(sf_precoeff5_6,nfft_both_6,"pppm/disp:sf_precoeff5_6");
-      memory->create(sf_precoeff6_6,nfft_both_6,"pppm/disp:sf_precoeff6_6");
-
+      for (int i = 1; i <= 6; i++) {
+        memory->create(sf_precoeff_6[i],nfft_both_6,"pppm/disp:sf_precoeff_6");
+      }
     } else {
       memory->create3d_offset(vdx_brick_g,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
                               nxlo_out_6,nxhi_out_6,"pppm/disp:vdx_brick_g");
@@ -1917,168 +1867,34 @@ void _noopt PPPMDisp::allocate()
     }
   }
 
-  // --------------------------------------
-  // dispersion grids with arithmetic mixing
-  // --------------------------------------
-
   if (termflag[2]) {
-    memory->create(work1_6,2*nfft_both_6,"pppm/disp:work1_6");
-    memory->create(work2_6,2*nfft_both_6,"pppm/disp:work2_6");
-
-    memory->create1d_offset(fkx_6,nxlo_fft_6,nxhi_fft_6,"pppm/disp:fkx_6");
-    memory->create1d_offset(fky_6,nylo_fft_6,nyhi_fft_6,"pppm/disp:fky_6");
-    memory->create1d_offset(fkz_6,nzlo_fft_6,nzhi_fft_6,"pppm/disp:fkz_6");
-
-    memory->create1d_offset(fkx2_6,nxlo_fft_6,nxhi_fft_6,"pppm/disp:fkx2_6");
-    memory->create1d_offset(fky2_6,nylo_fft_6,nyhi_fft_6,"pppm/disp:fky2_6");
-    memory->create1d_offset(fkz2_6,nzlo_fft_6,nzhi_fft_6,"pppm/disp:fkz2_6");
-
-    memory->create(gf_b_6,order_6,"pppm/disp:gf_b_6");
-    memory->create2d_offset(rho1d_6,3,-order_6/2,order_6/2,"pppm/disp:rho1d_6");
-    memory->create2d_offset(rho_coeff_6,order_6,(1-order_6)/2,order_6/2,
-                            "pppm/disp:rho_coeff_6");
-    memory->create2d_offset(drho1d_6,3,-order_6/2,order_6/2,"pppm/disp:drho1d_6");
-    memory->create2d_offset(drho_coeff_6,order_6,(1-order_6)/2,order_6/2,
-                            "pppm/disp:drho_coeff_6");
-
-    memory->create(greensfn_6,nfft_both_6,"pppm/disp:greensfn_6");
-    memory->create(vg_6,nfft_both_6,6,"pppm/disp:vg_6");
-    memory->create(vg2_6,nfft_both_6,3,"pppm/disp:vg2_6");
-
-    memory->create3d_offset(density_brick_a0,nzlo_out_6,
-                            nzhi_out_6,nylo_out_6,nyhi_out_6,
-                            nxlo_out_6,nxhi_out_6,"pppm/disp:density_brick_a0");
-    memory->create3d_offset(density_brick_a1,nzlo_out_6,
-                            nzhi_out_6,nylo_out_6,nyhi_out_6,
-                            nxlo_out_6,nxhi_out_6,"pppm/disp:density_brick_a1");
-    memory->create3d_offset(density_brick_a2,nzlo_out_6,nzhi_out_6,
-                            nylo_out_6,nyhi_out_6,
-                            nxlo_out_6,nxhi_out_6,"pppm/disp:density_brick_a2");
-    memory->create3d_offset(density_brick_a3,nzlo_out_6,nzhi_out_6,
-                            nylo_out_6,nyhi_out_6,
-                            nxlo_out_6,nxhi_out_6,"pppm/disp:density_brick_a3");
-    memory->create3d_offset(density_brick_a4,nzlo_out_6,nzhi_out_6,
-                            nylo_out_6,nyhi_out_6,
-                            nxlo_out_6,nxhi_out_6,"pppm/disp:density_brick_a4");
-    memory->create3d_offset(density_brick_a5,nzlo_out_6,nzhi_out_6,
-                            nylo_out_6,nyhi_out_6,
-                            nxlo_out_6,nxhi_out_6,"pppm/disp:density_brick_a5");
-    memory->create3d_offset(density_brick_a6,nzlo_out_6,nzhi_out_6,
-                            nylo_out_6,nyhi_out_6,
-                            nxlo_out_6,nxhi_out_6,"pppm/disp:density_brick_a6");
-
-    memory->create(density_fft_a0,nfft_both_6,"pppm/disp:density_fft_a0");
-    memory->create(density_fft_a1,nfft_both_6,"pppm/disp:density_fft_a1");
-    memory->create(density_fft_a2,nfft_both_6,"pppm/disp:density_fft_a2");
-    memory->create(density_fft_a3,nfft_both_6,"pppm/disp:density_fft_a3");
-    memory->create(density_fft_a4,nfft_both_6,"pppm/disp:density_fft_a4");
-    memory->create(density_fft_a5,nfft_both_6,"pppm/disp:density_fft_a5");
-    memory->create(density_fft_a6,nfft_both_6,"pppm/disp:density_fft_a6");
+    for (int i = 0; i <= 6; i++) {
+      memory->create3d_offset(density_brick_a[i],nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
+                              nxlo_out_6,nxhi_out_6,"pppm/disp:density_brick_a");
+      memory->create(density_fft_a[i],nfft_both_6,"pppm/disp:density_fft_a");
+    }
 
     if (differentiation_flag == 1) {
-      memory->create3d_offset(u_brick_a0,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:u_brick_a0");
-      memory->create3d_offset(u_brick_a1,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:u_brick_a1");
-      memory->create3d_offset(u_brick_a2,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:u_brick_a2");
-      memory->create3d_offset(u_brick_a3,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:u_brick_a3");
-      memory->create3d_offset(u_brick_a4,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:u_brick_a4");
-      memory->create3d_offset(u_brick_a5,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:u_brick_a5");
-      memory->create3d_offset(u_brick_a6,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:u_brick_a6");
-
-      memory->create(sf_precoeff1_6,nfft_both_6,"pppm/disp:sf_precoeff1_6");
-      memory->create(sf_precoeff2_6,nfft_both_6,"pppm/disp:sf_precoeff2_6");
-      memory->create(sf_precoeff3_6,nfft_both_6,"pppm/disp:sf_precoeff3_6");
-      memory->create(sf_precoeff4_6,nfft_both_6,"pppm/disp:sf_precoeff4_6");
-      memory->create(sf_precoeff5_6,nfft_both_6,"pppm/disp:sf_precoeff5_6");
-      memory->create(sf_precoeff6_6,nfft_both_6,"pppm/disp:sf_precoeff6_6");
-
+      for (int i = 0; i <= 6; i++) {
+        memory->create3d_offset(u_brick_a[i],nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
+                                nxlo_out_6,nxhi_out_6,"pppm/disp:u_brick_a");
+      }
+      for (int i = 1; i <= 6; i++) {
+        memory->create(sf_precoeff_6[i],nfft_both_6,"pppm/disp:sf_precoeff_6");
+      }
     } else {
-
-      memory->create3d_offset(vdx_brick_a0,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:vdx_brick_a0");
-      memory->create3d_offset(vdy_brick_a0,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:vdy_brick_a0");
-      memory->create3d_offset(vdz_brick_a0,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:vdz_brick_a0");
-
-      memory->create3d_offset(vdx_brick_a1,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:vdx_brick_a1");
-      memory->create3d_offset(vdy_brick_a1,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:vdy_brick_a1");
-      memory->create3d_offset(vdz_brick_a1,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:vdz_brick_a1");
-
-      memory->create3d_offset(vdx_brick_a2,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:vdx_brick_a2");
-      memory->create3d_offset(vdy_brick_a2,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:vdy_brick_a2");
-      memory->create3d_offset(vdz_brick_a2,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:vdz_brick_a2");
-
-      memory->create3d_offset(vdx_brick_a3,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:vdx_brick_a3");
-      memory->create3d_offset(vdy_brick_a3,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:vdy_brick_a3");
-      memory->create3d_offset(vdz_brick_a3,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:vdz_brick_a3");
-
-      memory->create3d_offset(vdx_brick_a4,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:vdx_brick_a4");
-      memory->create3d_offset(vdy_brick_a4,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:vdy_brick_a4");
-      memory->create3d_offset(vdz_brick_a4,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:vdz_brick_a4");
-
-      memory->create3d_offset(vdx_brick_a5,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:vdx_brick_a5");
-      memory->create3d_offset(vdy_brick_a5,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:vdy_brick_a5");
-      memory->create3d_offset(vdz_brick_a5,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:vdz_brick_a5");
-
-      memory->create3d_offset(vdx_brick_a6,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:vdx_brick_a6");
-      memory->create3d_offset(vdy_brick_a6,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:vdy_brick_a6");
-      memory->create3d_offset(vdz_brick_a6,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:vdz_brick_a6");
+      for (int i = 0; i <= 6; i++) {
+        memory->create3d_offset(vdx_brick_a[i],nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
+                                nxlo_out_6,nxhi_out_6,"pppm/disp:vdx_brick_a");
+        memory->create3d_offset(vdy_brick_a[i],nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
+                                nxlo_out_6,nxhi_out_6,"pppm/disp:vdy_brick_a");
+        memory->create3d_offset(vdz_brick_a[i],nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
+                                nxlo_out_6,nxhi_out_6,"pppm/disp:vdz_brick_a");
+      }
     }
   }
 
-  // --------------------------------------
-  // dispersion grids with no mixing
-  // --------------------------------------
-
   if (termflag[3]) {
-    memory->create(work1_6,2*nfft_both_6,"pppm/disp:work1_6");
-    memory->create(work2_6,2*nfft_both_6,"pppm/disp:work2_6");
-
-    memory->create1d_offset(fkx_6,nxlo_fft_6,nxhi_fft_6,"pppm/disp:fkx_6");
-    memory->create1d_offset(fky_6,nylo_fft_6,nyhi_fft_6,"pppm/disp:fky_6");
-    memory->create1d_offset(fkz_6,nzlo_fft_6,nzhi_fft_6,"pppm/disp:fkz_6");
-
-    memory->create1d_offset(fkx2_6,nxlo_fft_6,nxhi_fft_6,"pppm/disp:fkx2_6");
-    memory->create1d_offset(fky2_6,nylo_fft_6,nyhi_fft_6,"pppm/disp:fky2_6");
-    memory->create1d_offset(fkz2_6,nzlo_fft_6,nzhi_fft_6,"pppm/disp:fkz2_6");
-
-    memory->create(gf_b_6,order_6,"pppm/disp:gf_b_6");
-    memory->create2d_offset(rho1d_6,3,-order_6/2,order_6/2,"pppm/disp:rho1d_6");
-    memory->create2d_offset(rho_coeff_6,order_6,(1-order_6)/2,order_6/2,
-                            "pppm/disp:rho_coeff_6");
-    memory->create2d_offset(drho1d_6,3,-order_6/2,order_6/2,"pppm/disp:drho1d_6");
-    memory->create2d_offset(drho_coeff_6,order_6,(1-order_6)/2,order_6/2,
-                            "pppm/disp:drho_coeff_6");
-
-    memory->create(greensfn_6,nfft_both_6,"pppm/disp:greensfn_6");
-    memory->create(vg_6,nfft_both_6,6,"pppm/disp:vg_6");
-    memory->create(vg2_6,nfft_both_6,3,"pppm/disp:vg2_6");
-
     memory->create4d_offset(density_brick_none,nsplit_alloc,
                             nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
                             nxlo_out_6,nxhi_out_6,"pppm/disp:density_brick_none");
@@ -2089,14 +1905,9 @@ void _noopt PPPMDisp::allocate()
       memory->create4d_offset(u_brick_none,nsplit_alloc,
                               nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
                               nxlo_out_6,nxhi_out_6,"pppm/disp:u_brick_none");
-
-      memory->create(sf_precoeff1_6,nfft_both_6,"pppm/disp:sf_precoeff1_6");
-      memory->create(sf_precoeff2_6,nfft_both_6,"pppm/disp:sf_precoeff2_6");
-      memory->create(sf_precoeff3_6,nfft_both_6,"pppm/disp:sf_precoeff3_6");
-      memory->create(sf_precoeff4_6,nfft_both_6,"pppm/disp:sf_precoeff4_6");
-      memory->create(sf_precoeff5_6,nfft_both_6,"pppm/disp:sf_precoeff5_6");
-      memory->create(sf_precoeff6_6,nfft_both_6,"pppm/disp:sf_precoeff6_6");
-
+      for (int i = 1; i <= 6; i++) {
+        memory->create(sf_precoeff_6[i],nfft_both_6,"pppm/disp:sf_precoeff_6");
+      }
     } else {
       memory->create4d_offset(vdx_brick_none,nsplit_alloc,
                               nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
