@@ -2120,6 +2120,20 @@ void PPPMDisp::allocate_peratom()
 {
   peratom_allocate_flag = 1;
 
+  auto realloc_gc_bufs = [this](int npergrid_val) {
+    memory->destroy(gc_buf1);
+    memory->destroy(gc_buf2);
+    memory->create(gc_buf1, npergrid_val * ngc_buf1, "pppm:gc_buf1");
+    memory->create(gc_buf2, npergrid_val * ngc_buf2, "pppm:gc_buf2");
+  };
+
+  auto realloc_gc6_bufs = [this](int npergrid6_val) {
+    memory->destroy(gc6_buf1);
+    memory->destroy(gc6_buf2);
+    memory->create(gc6_buf1, npergrid6_val * ngc6_buf1, "pppm:gc6_buf1");
+    memory->create(gc6_buf2, npergrid6_val * ngc6_buf2, "pppm:gc6_buf2");
+  };
+
   // --------------------------------------
   // Coulomb grids
   // --------------------------------------
@@ -2128,18 +2142,13 @@ void PPPMDisp::allocate_peratom()
     if (differentiation_flag != 1)
       memory->create3d_offset(u_brick,nzlo_out,nzhi_out,nylo_out,nyhi_out,
                               nxlo_out,nxhi_out,"pppm/disp:u_brick");
-    memory->create3d_offset(v0_brick,nzlo_out,nzhi_out,nylo_out,nyhi_out,
-                            nxlo_out,nxhi_out,"pppm/disp:v0_brick");
-    memory->create3d_offset(v1_brick,nzlo_out,nzhi_out,nylo_out,nyhi_out,
-                            nxlo_out,nxhi_out,"pppm/disp:v1_brick");
-    memory->create3d_offset(v2_brick,nzlo_out,nzhi_out,nylo_out,nyhi_out,
-                            nxlo_out,nxhi_out,"pppm/disp:v2_brick");
-    memory->create3d_offset(v3_brick,nzlo_out,nzhi_out,nylo_out,nyhi_out,
-                            nxlo_out,nxhi_out,"pppm/disp:v3_brick");
-    memory->create3d_offset(v4_brick,nzlo_out,nzhi_out,nylo_out,nyhi_out,
-                            nxlo_out,nxhi_out,"pppm/disp:v4_brick");
-    memory->create3d_offset(v5_brick,nzlo_out,nzhi_out,nylo_out,nyhi_out,
-                            nxlo_out,nxhi_out,"pppm/disp:v5_brick");
+
+    FFT_SCALAR ****v_bricks[6] = {&v0_brick, &v1_brick, &v2_brick, &v3_brick, &v4_brick, &v5_brick};
+    for (int i = 0; i < 6; i++) {
+      char name[64];
+      snprintf(name, sizeof(name), "pppm/disp:v%d_brick", i);
+      memory->create3d_offset(*v_bricks[i], nzlo_out, nzhi_out, nylo_out, nyhi_out, nxlo_out, nxhi_out, name);
+    }
 
     // use same GC ghost grid object for peratom grid communication
     // but need to reallocate a larger gc_buf1 and gc_buf2
@@ -2147,10 +2156,7 @@ void PPPMDisp::allocate_peratom()
     if (differentiation_flag) npergrid = 6;
     else npergrid = 7;
 
-    memory->destroy(gc_buf1);
-    memory->destroy(gc_buf2);
-    memory->create(gc_buf1,npergrid*ngc_buf1,"pppm:gc_buf1");
-    memory->create(gc_buf2,npergrid*ngc_buf2,"pppm:gc_buf2");
+    realloc_gc_bufs(npergrid);
   }
 
   // --------------------------------------
@@ -2161,18 +2167,13 @@ void PPPMDisp::allocate_peratom()
     if (differentiation_flag != 1 )
       memory->create3d_offset(u_brick_g,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
                               nxlo_out_6,nxhi_out_6,"pppm/disp:u_brick_g");
-    memory->create3d_offset(v0_brick_g,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                            nxlo_out_6,nxhi_out_6,"pppm/disp:v0_brick_g");
-    memory->create3d_offset(v1_brick_g,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                            nxlo_out_6,nxhi_out_6,"pppm/disp:v1_brick_g");
-    memory->create3d_offset(v2_brick_g,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                            nxlo_out_6,nxhi_out_6,"pppm/disp:v2_brick_g");
-    memory->create3d_offset(v3_brick_g,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                            nxlo_out_6,nxhi_out_6,"pppm/disp:v3_brick_g");
-    memory->create3d_offset(v4_brick_g,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                            nxlo_out_6,nxhi_out_6,"pppm/disp:v4_brick_g");
-    memory->create3d_offset(v5_brick_g,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                            nxlo_out_6,nxhi_out_6,"pppm/disp:v5_brick_g");
+
+    FFT_SCALAR ****v_bricks_g[6] = {&v0_brick_g, &v1_brick_g, &v2_brick_g, &v3_brick_g, &v4_brick_g, &v5_brick_g};
+    for (int i = 0; i < 6; i++) {
+      char name[64];
+      snprintf(name, sizeof(name), "pppm/disp:v%d_brick_g", i);
+      memory->create3d_offset(*v_bricks_g[i], nzlo_out_6, nzhi_out_6, nylo_out_6, nyhi_out_6, nxlo_out_6, nxhi_out_6, name);
+    }
 
     // use same GC ghost grid object for peratom grid communication
     // but need to reallocate a larger gc_buf1 and gc_buf2
@@ -2180,10 +2181,7 @@ void PPPMDisp::allocate_peratom()
     if (differentiation_flag) npergrid6 = 6;
     else npergrid6 = 7;
 
-    memory->destroy(gc6_buf1);
-    memory->destroy(gc6_buf2);
-    memory->create(gc6_buf1,npergrid6*ngc6_buf1,"pppm:gc6_buf1");
-    memory->create(gc6_buf2,npergrid6*ngc6_buf2,"pppm:gc6_buf2");
+    realloc_gc6_bufs(npergrid6);
   }
 
   // --------------------------------------
@@ -2192,112 +2190,31 @@ void PPPMDisp::allocate_peratom()
 
   if (termflag[2]) {
     if (differentiation_flag != 1) {
-      memory->create3d_offset(u_brick_a0,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:u_brick_a0");
-      memory->create3d_offset(u_brick_a1,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:u_brick_a1");
-      memory->create3d_offset(u_brick_a2,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:u_brick_a2");
-      memory->create3d_offset(u_brick_a3,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:u_brick_a3");
-      memory->create3d_offset(u_brick_a4,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:u_brick_a4");
-      memory->create3d_offset(u_brick_a5,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:u_brick_a5");
-      memory->create3d_offset(u_brick_a6,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                              nxlo_out_6,nxhi_out_6,"pppm/disp:u_brick_a6");
+      FFT_SCALAR ****u_bricks_a[7] = {&u_brick_a0, &u_brick_a1, &u_brick_a2, &u_brick_a3, &u_brick_a4, &u_brick_a5, &u_brick_a6};
+      for (int i = 0; i < 7; i++) {
+        char name[64];
+        snprintf(name, sizeof(name), "pppm/disp:u_brick_a%d", i);
+        memory->create3d_offset(*u_bricks_a[i], nzlo_out_6, nzhi_out_6, nylo_out_6, nyhi_out_6, nxlo_out_6, nxhi_out_6, name);
+      }
     }
 
-    memory->create3d_offset(v0_brick_a0,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v0_brick_a0");
-    memory->create3d_offset(v1_brick_a0,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v1_brick_a0");
-    memory->create3d_offset(v2_brick_a0,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v2_brick_a0");
-    memory->create3d_offset(v3_brick_a0,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v3_brick_a0");
-    memory->create3d_offset(v4_brick_a0,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v4_brick_a0");
-    memory->create3d_offset(v5_brick_a0,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v5_brick_a0");
+    FFT_SCALAR ****v_bricks_a[42] = {
+      &v0_brick_a0, &v1_brick_a0, &v2_brick_a0, &v3_brick_a0, &v4_brick_a0, &v5_brick_a0,
+      &v0_brick_a1, &v1_brick_a1, &v2_brick_a1, &v3_brick_a1, &v4_brick_a1, &v5_brick_a1,
+      &v0_brick_a2, &v1_brick_a2, &v2_brick_a2, &v3_brick_a2, &v4_brick_a2, &v5_brick_a2,
+      &v0_brick_a3, &v1_brick_a3, &v2_brick_a3, &v3_brick_a3, &v4_brick_a3, &v5_brick_a3,
+      &v0_brick_a4, &v1_brick_a4, &v2_brick_a4, &v3_brick_a4, &v4_brick_a4, &v5_brick_a4,
+      &v0_brick_a5, &v1_brick_a5, &v2_brick_a5, &v3_brick_a5, &v4_brick_a5, &v5_brick_a5,
+      &v0_brick_a6, &v1_brick_a6, &v2_brick_a6, &v3_brick_a6, &v4_brick_a6, &v5_brick_a6
+    };
 
-    memory->create3d_offset(v0_brick_a1,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v0_brick_a1");
-    memory->create3d_offset(v1_brick_a1,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v1_brick_a1");
-    memory->create3d_offset(v2_brick_a1,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v2_brick_a1");
-    memory->create3d_offset(v3_brick_a1,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v3_brick_a1");
-    memory->create3d_offset(v4_brick_a1,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v4_brick_a1");
-    memory->create3d_offset(v5_brick_a1,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v5_brick_a1");
-
-    memory->create3d_offset(v0_brick_a2,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v0_brick_a2");
-    memory->create3d_offset(v1_brick_a2,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v1_brick_a2");
-    memory->create3d_offset(v2_brick_a2,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v2_brick_a2");
-    memory->create3d_offset(v3_brick_a2,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v3_brick_a2");
-    memory->create3d_offset(v4_brick_a2,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v4_brick_a2");
-    memory->create3d_offset(v5_brick_a2,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v5_brick_a2");
-
-    memory->create3d_offset(v0_brick_a3,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v0_brick_a3");
-    memory->create3d_offset(v1_brick_a3,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v1_brick_a3");
-    memory->create3d_offset(v2_brick_a3,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v2_brick_a3");
-    memory->create3d_offset(v3_brick_a3,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v3_brick_a3");
-    memory->create3d_offset(v4_brick_a3,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v4_brick_a3");
-    memory->create3d_offset(v5_brick_a3,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v5_brick_a3");
-
-    memory->create3d_offset(v0_brick_a4,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v0_brick_a4");
-    memory->create3d_offset(v1_brick_a4,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v1_brick_a4");
-    memory->create3d_offset(v2_brick_a4,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v2_brick_a4");
-    memory->create3d_offset(v3_brick_a4,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v3_brick_a4");
-    memory->create3d_offset(v4_brick_a4,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v4_brick_a4");
-    memory->create3d_offset(v5_brick_a4,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v5_brick_a4");
-
-    memory->create3d_offset(v0_brick_a5,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v0_brick_a5");
-    memory->create3d_offset(v1_brick_a5,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v1_brick_a5");
-    memory->create3d_offset(v2_brick_a5,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v2_brick_a5");
-    memory->create3d_offset(v3_brick_a5,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v3_brick_a5");
-    memory->create3d_offset(v4_brick_a5,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v4_brick_a5");
-    memory->create3d_offset(v5_brick_a5,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v5_brick_a5");
-
-    memory->create3d_offset(v0_brick_a6,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v0_brick_a6");
-    memory->create3d_offset(v1_brick_a6,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v1_brick_a6");
-    memory->create3d_offset(v2_brick_a6,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v2_brick_a6");
-    memory->create3d_offset(v3_brick_a6,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v3_brick_a6");
-    memory->create3d_offset(v4_brick_a6,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v4_brick_a6");
-    memory->create3d_offset(v5_brick_a6,nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                                nxlo_out_6,nxhi_out_6,"pppm/disp:v5_brick_a6");
+    for (int i = 0; i < 42; i++) {
+      int x = i % 6;
+      int y = i / 6;
+      char name[64];
+      snprintf(name, sizeof(name), "pppm/disp:v%d_brick_a%d", x, y);
+      memory->create3d_offset(*v_bricks_a[i], nzlo_out_6, nzhi_out_6, nylo_out_6, nyhi_out_6, nxlo_out_6, nxhi_out_6, name);
+    }
 
     // use same GC ghost grid object for peratom grid communication
     // but need to reallocate a larger gc_buf1 and gc_buf2
@@ -2305,10 +2222,7 @@ void PPPMDisp::allocate_peratom()
     if (differentiation_flag) npergrid6 = 42;
     else npergrid6 = 49;
 
-    memory->destroy(gc6_buf1);
-    memory->destroy(gc6_buf2);
-    memory->create(gc6_buf1,npergrid6*ngc6_buf1,"pppm:gc6_buf1");
-    memory->create(gc6_buf2,npergrid6*ngc6_buf2,"pppm:gc6_buf2");
+    realloc_gc6_bufs(npergrid6);
   }
 
   // --------------------------------------
@@ -2321,24 +2235,12 @@ void PPPMDisp::allocate_peratom()
                               nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
                               nxlo_out_6,nxhi_out_6,"pppm/disp:u_brick_none");
 
-    memory->create4d_offset(v0_brick_none,nsplit_alloc,
-                            nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                            nxlo_out_6,nxhi_out_6,"pppm/disp:v0_brick_none");
-    memory->create4d_offset(v1_brick_none,nsplit_alloc,
-                            nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                            nxlo_out_6,nxhi_out_6,"pppm/disp:v1_brick_none");
-    memory->create4d_offset(v2_brick_none,nsplit_alloc,
-                            nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                            nxlo_out_6,nxhi_out_6,"pppm/disp:v2_brick_none");
-    memory->create4d_offset(v3_brick_none,nsplit_alloc,
-                            nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                            nxlo_out_6,nxhi_out_6,"pppm/disp:v3_brick_none");
-    memory->create4d_offset(v4_brick_none,nsplit_alloc,
-                            nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                            nxlo_out_6,nxhi_out_6,"pppm/disp:v4_brick_none");
-    memory->create4d_offset(v5_brick_none,nsplit_alloc,
-                            nzlo_out_6,nzhi_out_6,nylo_out_6,nyhi_out_6,
-                            nxlo_out_6,nxhi_out_6,"pppm/disp:v5_brick_none");
+    FFT_SCALAR *****v_bricks_none[6] = {&v0_brick_none, &v1_brick_none, &v2_brick_none, &v3_brick_none, &v4_brick_none, &v5_brick_none};
+    for (int i = 0; i < 6; i++) {
+      char name[64];
+      snprintf(name, sizeof(name), "pppm/disp:v%d_brick_none", i);
+      memory->create4d_offset(*v_bricks_none[i], nsplit_alloc, nzlo_out_6, nzhi_out_6, nylo_out_6, nyhi_out_6, nxlo_out_6, nxhi_out_6, name);
+    }
 
     // use same GC ghost grid object for peratom grid communication
     // but need to reallocate a larger gc_buf1 and gc_buf2
@@ -2346,10 +2248,7 @@ void PPPMDisp::allocate_peratom()
     if (differentiation_flag) npergrid6 = 6*nsplit_alloc;
     else npergrid6 = 7*nsplit_alloc;
 
-    memory->destroy(gc6_buf1);
-    memory->destroy(gc6_buf2);
-    memory->create(gc6_buf1,npergrid6*ngc6_buf1,"pppm:gc6_buf1");
-    memory->create(gc6_buf2,npergrid6*ngc6_buf2,"pppm:gc6_buf2");
+    realloc_gc6_bufs(npergrid6);
   }
 }
 
