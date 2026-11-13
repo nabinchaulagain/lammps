@@ -751,26 +751,29 @@ void ComputeFrenkel::compute_local()
   // Ditto for clusters
   if (invoked_find_clusters != update->ntimestep) find_clusters();
 
-  //  if ( noccupied == 0 ) return;
+  // Early exit if there are no occupied clusters
+  if (noccupied == 0) {
+    size_local_rows = 0;
+    memory->destroy(array_local);
+    return;
+  }
 
   // Find out whether the cluster belongs to this subdomain
   // (this prevents duplicate output)
-  bool *owned = new bool[noccupied]();
+  std::vector<int> owned(noccupied, 0);
   int nowned = 0;
   for (int i = 0; i < noccupied; i++) {
     if (cluster_center[i][0] >= domain->sublo[0] && cluster_center[i][0] < domain->subhi[0] &&
         cluster_center[i][1] >= domain->sublo[1] && cluster_center[i][1] < domain->subhi[1] &&
         cluster_center[i][2] >= domain->sublo[2] && cluster_center[i][2] < domain->subhi[2]) {
-      owned[i] = true;
+      owned[i] = 1;
       nowned++;
-    } else
-      owned[i] = false;
+    }
   }
 
   size_local_rows = nowned;
 
   if (nowned == 0) {
-    delete[] owned;
     return;
   }
 
@@ -784,16 +787,11 @@ void ComputeFrenkel::compute_local()
     if (!owned[j]) continue;
     array_local[i][0] = static_cast<double>(occupied_cluster_ID[j]);
     array_local[i][1] = static_cast<double>(cluster_size[j]);
-    /*    array_local[i][2] = (cluster_center[j][0] - domain->boxlo[0])/domain->xprd;
-    array_local[i][3] = (cluster_center[j][1] - domain->boxlo[1])/domain->yprd;
-    array_local[i][4] = (cluster_center[j][2] - domain->boxlo[2])/domain->zprd;
-*/
     array_local[i][2] = cluster_center[j][0];
     array_local[i][3] = cluster_center[j][1];
     array_local[i][4] = cluster_center[j][2];
     i++;
   }
-  delete[] owned;
 }
 
 /****************************************************************************/
