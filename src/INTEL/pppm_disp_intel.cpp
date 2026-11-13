@@ -157,7 +157,6 @@ void PPPMDispIntel::compute(int eflag, int vflag)
   int i;
 
   // convert atoms from box to lamda coords
-
   ev_init(eflag,vflag);
 
   if (evflag_atom && !peratom_allocate_flag) allocate_peratom();
@@ -167,17 +166,48 @@ void PPPMDispIntel::compute(int eflag, int vflag)
     boxlo = domain->boxlo_lamda;
     domain->x2lamda(atom->nlocal);
   }
+
   // extend size of per-atom arrays if necessary
+  grow_arrays();
 
+  energy = 0.0;
+  energy_1 = 0.0;
+  energy_6 = 0.0;
+  if (vflag) for (i = 0; i < 6; i++) virial_6[i] = virial_1[i] = 0.0;
+
+  if (termflag[TERM_COUL]) compute_coulomb_intel();
+  if (termflag[TERM_DISP_GEOM]) compute_dispersion_geom_intel();
+  if (termflag[TERM_DISP_ARITH]) compute_dispersion_arith_intel();
+  if (termflag[TERM_DISP_NONE]) compute_dispersion_none_intel();
+
+  // update qsum and qsqsum, if atom count has changed and energy needed
+  if ((eflag_global || eflag_atom) && atom->natoms != natoms_original) {
+    qsum_qsq();
+    natoms_original = atom->natoms;
+  }
+
+  sum_global_energy_and_virial();
+  apply_peratom_corrections();
+
+  // 2d slab correction
+  if (slabflag) slabcorr(eflag);
+  if (termflag[TERM_COUL]) energy += energy_1;
+  if (termflag[TERM_DISP_GEOM] + termflag[TERM_DISP_ARITH] + termflag[TERM_DISP_NONE]) energy += energy_6;
+
+  // convert atoms back from lamda to box coords
+  if (triclinic) domain->lamda2x(atom->nlocal);
+}
+
+void PPPMDispIntel::grow_arrays()
+{
   if (atom->nmax > nmax) {
-
-    if (termflag[0]) memory->destroy(part2grid);
-    if (termflag[1] + termflag[2] + termflag[3]) memory->destroy(part2grid_6);
+    if (termflag[TERM_COUL]) memory->destroy(part2grid);
+    if (termflag[TERM_DISP_GEOM] + termflag[TERM_DISP_ARITH] + termflag[TERM_DISP_NONE]) memory->destroy(part2grid_6);
     if (differentiation_flag == 1) {
       memory->destroy(particle_ekx);
       memory->destroy(particle_eky);
       memory->destroy(particle_ekz);
-      if (termflag[2] == 1) {
+      if (termflag[TERM_DISP_ARITH] == 1) {
         memory->destroy(particle_ekx0);
         memory->destroy(particle_eky0);
         memory->destroy(particle_ekz0);
@@ -200,17 +230,16 @@ void PPPMDispIntel::compute(int eflag, int vflag)
         memory->destroy(particle_eky6);
         memory->destroy(particle_ekz6);
       }
-
     }
     nmax = atom->nmax;
-    if (termflag[0]) memory->create(part2grid,nmax,3,"pppm/disp:part2grid");
-    if (termflag[1] + termflag[2] + termflag[3])
+    if (termflag[TERM_COUL]) memory->create(part2grid,nmax,3,"pppm/disp:part2grid");
+    if (termflag[TERM_DISP_GEOM] + termflag[TERM_DISP_ARITH] + termflag[TERM_DISP_NONE])
       memory->create(part2grid_6,nmax,3,"pppm/disp:part2grid_6");
     if (differentiation_flag == 1) {
       memory->create(particle_ekx, nmax, "pppmdispintel:pekx");
       memory->create(particle_eky, nmax, "pppmdispintel:peky");
       memory->create(particle_ekz, nmax, "pppmdispintel:pekz");
-      if (termflag[2] == 1) {
+      if (termflag[TERM_DISP_ARITH] == 1) {
         memory->create(particle_ekx0, nmax, "pppmdispintel:pekx0");
         memory->create(particle_eky0, nmax, "pppmdispintel:peky0");
         memory->create(particle_ekz0, nmax, "pppmdispintel:pekz0");
@@ -235,399 +264,375 @@ void PPPMDispIntel::compute(int eflag, int vflag)
       }
     }
   }
-  energy = 0.0;
-  energy_1 = 0.0;
-  energy_6 = 0.0;
-  if (vflag) for (i = 0; i < 6; i++) virial_6[i] = virial_1[i] = 0.0;
+}
 
-  // find grid points for all my particles
-  // distribute partcles' charges/dispersion coefficients on the grid
-  // communication between processors and remapping two fft
-  // Solution of poissons equation in k-space and backtransformation
-  // communication between processors
-  // calculation of forces
-
-  if (termflag[0]) {
-
-    //perform calculations for coulomb interactions only
-
-    if (fix->precision() == FixIntel::PREC_MODE_MIXED) {
-      particle_map_intel<float,double>(delxinv, delyinv, delzinv, shift, part2grid,
-                                       nupper, nlower, nxlo_out, nylo_out, nzlo_out,
-                                       nxhi_out, nyhi_out, nzhi_out,
-                                       fix->get_mixed_buffers());
-      make_rho_c_intel<float,double>(fix->get_mixed_buffers());
-    } else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE) {
-      particle_map_intel<double,double>(delxinv, delyinv, delzinv, shift, part2grid,
-                                        nupper, nlower, nxlo_out, nylo_out,
-                                        nzlo_out, nxhi_out, nyhi_out, nzhi_out,
-                                        fix->get_double_buffers());
-      make_rho_c_intel<double,double>(fix->get_double_buffers());
-    } else {
-      particle_map_intel<float,float>(delxinv, delyinv, delzinv, shift, part2grid,
-                                      nupper, nlower, nxlo_out, nylo_out, nzlo_out,
-                                      nxhi_out, nyhi_out, nzhi_out,
-                                      fix->get_single_buffers());
-      make_rho_c_intel<float,float>(fix->get_single_buffers());
-    }
-
-    gc->reverse_comm(Grid3d::KSPACE,this,REVERSE_RHO,1,sizeof(FFT_SCALAR),
-                     gc_buf1,gc_buf2,MPI_FFT_SCALAR);
-
-    brick2fft(nxlo_in, nylo_in, nzlo_in, nxhi_in, nyhi_in, nzhi_in,
-              density_brick, density_fft, work1,remap);
-
-    if (differentiation_flag == 1) {
-      poisson_ad(work1, work2, density_fft, fft1, fft2,
-                 nx_pppm, ny_pppm, nz_pppm, nfft,
-                 nxlo_fft, nylo_fft, nzlo_fft, nxhi_fft, nyhi_fft, nzhi_fft,
-                 nxlo_in, nylo_in, nzlo_in, nxhi_in, nyhi_in, nzhi_in,
-                 energy_1, greensfn, virial_1, vg,vg2, u_brick, v0_brick,
-                 v1_brick, v2_brick, v3_brick, v4_brick, v5_brick);
-
-      gc->forward_comm(Grid3d::KSPACE,this,FORWARD_AD,1,sizeof(FFT_SCALAR),
-                       gc_buf1,gc_buf2,MPI_FFT_SCALAR);
-
-      if (fix->precision() == FixIntel::PREC_MODE_MIXED) {
-        fieldforce_c_ad_intel<float,double>(fix->get_mixed_buffers());
-      } else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE) {
-        fieldforce_c_ad_intel<double,double>(fix->get_double_buffers());
-      } else {
-        fieldforce_c_ad_intel<float,float>(fix->get_single_buffers());
-      }
-
-      if (vflag_atom)
-        gc->forward_comm(Grid3d::KSPACE,this,FORWARD_AD_PERATOM,6,sizeof(FFT_SCALAR),
-                         gc_buf1,gc_buf2,MPI_FFT_SCALAR);
-
-    } else {
-      poisson_ik(work1, work2, density_fft, fft1, fft2,
-                 nx_pppm, ny_pppm, nz_pppm, nfft,
-                 nxlo_fft, nylo_fft, nzlo_fft, nxhi_fft, nyhi_fft, nzhi_fft,
-                 nxlo_in, nylo_in, nzlo_in, nxhi_in, nyhi_in, nzhi_in,
-                 energy_1, greensfn, fkx, fky, fkz,fkx2, fky2, fkz2,
-                 vdx_brick, vdy_brick, vdz_brick, virial_1, vg,vg2,
-                 u_brick, v0_brick, v1_brick, v2_brick, v3_brick, v4_brick,
-                 v5_brick);
-
-      gc->forward_comm(Grid3d::KSPACE,this,FORWARD_IK,3,sizeof(FFT_SCALAR),
-                       gc_buf1,gc_buf2,MPI_FFT_SCALAR);
-
-      if (fix->precision() == FixIntel::PREC_MODE_MIXED) {
-        fieldforce_c_ik_intel<float,double>(fix->get_mixed_buffers());
-      } else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE) {
-        fieldforce_c_ik_intel<double,double>(fix->get_double_buffers());
-      } else {
-        fieldforce_c_ik_intel<float,float>(fix->get_single_buffers());
-      }
-
-      if (evflag_atom)
-        gc->forward_comm(Grid3d::KSPACE,this,FORWARD_IK_PERATOM,7,sizeof(FFT_SCALAR),
-                         gc_buf1,gc_buf2,MPI_FFT_SCALAR);
-    }
-    if (evflag_atom) fieldforce_c_peratom();
+void PPPMDispIntel::compute_coulomb_intel()
+{
+  if (fix->precision() == FixIntel::PREC_MODE_MIXED) {
+    particle_map_intel<float,double>(delxinv, delyinv, delzinv, shift, part2grid,
+                                     nupper, nlower, nxlo_out, nylo_out, nzlo_out,
+                                     nxhi_out, nyhi_out, nzhi_out,
+                                     fix->get_mixed_buffers());
+    make_rho_c_intel<float,double>(fix->get_mixed_buffers());
+  } else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE) {
+    particle_map_intel<double,double>(delxinv, delyinv, delzinv, shift, part2grid,
+                                      nupper, nlower, nxlo_out, nylo_out,
+                                      nzlo_out, nxhi_out, nyhi_out, nzhi_out,
+                                      fix->get_double_buffers());
+    make_rho_c_intel<double,double>(fix->get_double_buffers());
+  } else {
+    particle_map_intel<float,float>(delxinv, delyinv, delzinv, shift, part2grid,
+                                    nupper, nlower, nxlo_out, nylo_out, nzlo_out,
+                                    nxhi_out, nyhi_out, nzhi_out,
+                                    fix->get_single_buffers());
+    make_rho_c_intel<float,float>(fix->get_single_buffers());
   }
 
-  if (termflag[1]) {
+  gc->reverse_comm(Grid3d::KSPACE,this,REVERSE_RHO,1,sizeof(FFT_SCALAR),
+                   gc_buf1,gc_buf2,MPI_FFT_SCALAR);
 
-    //perform calculations for geometric mixing
+  brick2fft(nxlo_in, nylo_in, nzlo_in, nxhi_in, nyhi_in, nzhi_in,
+            density_brick, density_fft, work1,remap);
+
+  if (differentiation_flag == 1) {
+    poisson_ad(work1, work2, density_fft, fft1, fft2,
+               nx_pppm, ny_pppm, nz_pppm, nfft,
+               nxlo_fft, nylo_fft, nzlo_fft, nxhi_fft, nyhi_fft, nzhi_fft,
+               nxlo_in, nylo_in, nzlo_in, nxhi_in, nyhi_in, nzhi_in,
+               energy_1, greensfn, virial_1, vg,vg2, u_brick, v0_brick, v1_brick, v2_brick, v3_brick, v4_brick, v5_brick);
+
+    gc->forward_comm(Grid3d::KSPACE,this,FORWARD_AD,1,sizeof(FFT_SCALAR),
+                     gc_buf1,gc_buf2,MPI_FFT_SCALAR);
 
     if (fix->precision() == FixIntel::PREC_MODE_MIXED) {
-      particle_map_intel<float,double>(delxinv_6, delyinv_6, delzinv_6, shift_6,
-                                       part2grid_6, nupper_6, nlower_6, nxlo_out_6,
-                                       nylo_out_6, nzlo_out_6, nxhi_out_6,
-                                       nyhi_out_6, nzhi_out_6,
-                                       fix->get_mixed_buffers());
-      make_rho_g_intel<float,double>(fix->get_mixed_buffers());
+      fieldforce_c_ad_intel<float,double>(fix->get_mixed_buffers());
     } else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE) {
-      particle_map_intel<double,double>(delxinv_6, delyinv_6, delzinv_6, shift_6,
-                                        part2grid_6, nupper_6, nlower_6, nxlo_out_6,
-                                        nylo_out_6, nzlo_out_6, nxhi_out_6,
-                                        nyhi_out_6, nzhi_out_6,
-                                        fix->get_double_buffers());
-      make_rho_g_intel<double,double>(fix->get_double_buffers());
+      fieldforce_c_ad_intel<double,double>(fix->get_double_buffers());
     } else {
-      particle_map_intel<float,float>(delxinv_6, delyinv_6, delzinv_6, shift_6,
+      fieldforce_c_ad_intel<float,float>(fix->get_single_buffers());
+    }
+
+    if (vflag_atom)
+      gc->forward_comm(Grid3d::KSPACE,this,FORWARD_AD_PERATOM,6,sizeof(FFT_SCALAR),
+                       gc_buf1,gc_buf2,MPI_FFT_SCALAR);
+
+  } else {
+    poisson_ik(work1, work2, density_fft, fft1, fft2,
+               nx_pppm, ny_pppm, nz_pppm, nfft,
+               nxlo_fft, nylo_fft, nzlo_fft, nxhi_fft, nyhi_fft, nzhi_fft,
+               nxlo_in, nylo_in, nzlo_in, nxhi_in, nyhi_in, nzhi_in,
+               energy_1, greensfn, fkx, fky, fkz,fkx2, fky2, fkz2,
+               vdx_brick, vdy_brick, vdz_brick, virial_1, vg,vg2,
+               u_brick, v0_brick, v1_brick, v2_brick, v3_brick, v4_brick,
+               v5_brick);
+
+    gc->forward_comm(Grid3d::KSPACE,this,FORWARD_IK,3,sizeof(FFT_SCALAR),
+                     gc_buf1,gc_buf2,MPI_FFT_SCALAR);
+
+    if (fix->precision() == FixIntel::PREC_MODE_MIXED) {
+      fieldforce_c_ik_intel<float,double>(fix->get_mixed_buffers());
+    } else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE) {
+      fieldforce_c_ik_intel<double,double>(fix->get_double_buffers());
+    } else {
+      fieldforce_c_ik_intel<float,float>(fix->get_single_buffers());
+    }
+
+    if (evflag_atom)
+      gc->forward_comm(Grid3d::KSPACE,this,FORWARD_IK_PERATOM,7,sizeof(FFT_SCALAR),
+                       gc_buf1,gc_buf2,MPI_FFT_SCALAR);
+  }
+  if (evflag_atom) fieldforce_c_peratom();
+}
+
+void PPPMDispIntel::compute_dispersion_geom_intel()
+{
+  if (fix->precision() == FixIntel::PREC_MODE_MIXED) {
+    particle_map_intel<float,double>(delxinv_6, delyinv_6, delzinv_6, shift_6,
+                                     part2grid_6, nupper_6, nlower_6, nxlo_out_6,
+                                     nylo_out_6, nzlo_out_6, nxhi_out_6,
+                                     nyhi_out_6, nzhi_out_6,
+                                     fix->get_mixed_buffers());
+    make_rho_g_intel<float,double>(fix->get_mixed_buffers());
+  } else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE) {
+    particle_map_intel<double,double>(delxinv_6, delyinv_6, delzinv_6, shift_6,
                                       part2grid_6, nupper_6, nlower_6, nxlo_out_6,
                                       nylo_out_6, nzlo_out_6, nxhi_out_6,
                                       nyhi_out_6, nzhi_out_6,
-                                      fix->get_single_buffers());
-      make_rho_g_intel<float,float>(fix->get_single_buffers());
-    }
+                                      fix->get_double_buffers());
+    make_rho_g_intel<double,double>(fix->get_double_buffers());
+  } else {
+    particle_map_intel<float,float>(delxinv_6, delyinv_6, delzinv_6, shift_6,
+                                    part2grid_6, nupper_6, nlower_6, nxlo_out_6,
+                                    nylo_out_6, nzlo_out_6, nxhi_out_6,
+                                    nyhi_out_6, nzhi_out_6,
+                                    fix->get_single_buffers());
+    make_rho_g_intel<float,float>(fix->get_single_buffers());
+  }
 
-    gc6->reverse_comm(Grid3d::KSPACE,this,REVERSE_RHO_G,1,sizeof(FFT_SCALAR),
+  gc6->reverse_comm(Grid3d::KSPACE,this,REVERSE_RHO_G,1,sizeof(FFT_SCALAR),
+                    gc6_buf1,gc6_buf2,MPI_FFT_SCALAR);
+
+  brick2fft(nxlo_in_6, nylo_in_6, nzlo_in_6, nxhi_in_6, nyhi_in_6, nzhi_in_6,
+            density_brick_g, density_fft_g, work1_6,remap_6);
+
+  if (differentiation_flag == 1) {
+    poisson_ad(work1_6, work2_6, density_fft_g, fft1_6, fft2_6,
+               nx_pppm_6, ny_pppm_6, nz_pppm_6, nfft_6,
+               nxlo_fft_6, nylo_fft_6, nzlo_fft_6, nxhi_fft_6,
+               nyhi_fft_6, nzhi_fft_6, nxlo_in_6, nylo_in_6, nzlo_in_6,
+               nxhi_in_6, nyhi_in_6, nzhi_in_6, energy_6, greensfn_6,
+               virial_6, vg_6, vg2_6, u_brick_g, v0_brick_g, v1_brick_g,
+               v2_brick_g, v3_brick_g, v4_brick_g, v5_brick_g);
+
+    gc6->forward_comm(Grid3d::KSPACE,this,FORWARD_AD_G,1,sizeof(FFT_SCALAR),
                       gc6_buf1,gc6_buf2,MPI_FFT_SCALAR);
 
-    brick2fft(nxlo_in_6, nylo_in_6, nzlo_in_6, nxhi_in_6, nyhi_in_6, nzhi_in_6,
-              density_brick_g, density_fft_g, work1_6,remap_6);
-
-    if (differentiation_flag == 1) {
-      poisson_ad(work1_6, work2_6, density_fft_g, fft1_6, fft2_6,
-                 nx_pppm_6, ny_pppm_6, nz_pppm_6, nfft_6,
-                 nxlo_fft_6, nylo_fft_6, nzlo_fft_6, nxhi_fft_6,
-                 nyhi_fft_6, nzhi_fft_6, nxlo_in_6, nylo_in_6, nzlo_in_6,
-                 nxhi_in_6, nyhi_in_6, nzhi_in_6, energy_6, greensfn_6,
-                 virial_6, vg_6, vg2_6, u_brick_g, v0_brick_g, v1_brick_g,
-                 v2_brick_g, v3_brick_g, v4_brick_g, v5_brick_g);
-
-      gc6->forward_comm(Grid3d::KSPACE,this,FORWARD_AD_G,1,sizeof(FFT_SCALAR),
-                        gc6_buf1,gc6_buf2,MPI_FFT_SCALAR);
-
-      if (fix->precision() == FixIntel::PREC_MODE_MIXED) {
-        fieldforce_g_ad_intel<float,double>(fix->get_mixed_buffers());
-      } else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE) {
-        fieldforce_g_ad_intel<double,double>(fix->get_double_buffers());
-      } else {
-        fieldforce_g_ad_intel<float,float>(fix->get_single_buffers());
-      }
-
-      if (vflag_atom)
-        gc6->forward_comm(Grid3d::KSPACE,this,FORWARD_AD_PERATOM_G,7,sizeof(FFT_SCALAR),
-                          gc6_buf1,gc6_buf2,MPI_FFT_SCALAR);
-
+    if (fix->precision() == FixIntel::PREC_MODE_MIXED) {
+      fieldforce_g_ad_intel<float,double>(fix->get_mixed_buffers());
+    } else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE) {
+      fieldforce_g_ad_intel<double,double>(fix->get_double_buffers());
     } else {
-      poisson_ik(work1_6, work2_6, density_fft_g, fft1_6, fft2_6,
-                 nx_pppm_6, ny_pppm_6, nz_pppm_6, nfft_6, nxlo_fft_6,
-                 nylo_fft_6, nzlo_fft_6, nxhi_fft_6, nyhi_fft_6, nzhi_fft_6,
-                 nxlo_in_6, nylo_in_6, nzlo_in_6, nxhi_in_6, nyhi_in_6,
-                 nzhi_in_6, energy_6, greensfn_6, fkx_6, fky_6, fkz_6,
-                 fkx2_6, fky2_6, fkz2_6, vdx_brick_g, vdy_brick_g,
-                 vdz_brick_g, virial_6, vg_6, vg2_6, u_brick_g, v0_brick_g,
-                 v1_brick_g, v2_brick_g, v3_brick_g, v4_brick_g, v5_brick_g);
-
-      gc6->forward_comm(Grid3d::KSPACE,this,FORWARD_IK_G,3,sizeof(FFT_SCALAR),
-                        gc6_buf1,gc6_buf2,MPI_FFT_SCALAR);
-
-      if (fix->precision() == FixIntel::PREC_MODE_MIXED) {
-        fieldforce_g_ik_intel<float,double>(fix->get_mixed_buffers());
-      } else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE) {
-        fieldforce_g_ik_intel<double,double>(fix->get_double_buffers());
-      } else {
-        fieldforce_g_ik_intel<float,float>(fix->get_single_buffers());
-      }
-
-      if (evflag_atom)
-        gc6->forward_comm(Grid3d::KSPACE,this,FORWARD_IK_PERATOM_G,6,sizeof(FFT_SCALAR),
-                          gc6_buf1,gc6_buf2,MPI_FFT_SCALAR);
+      fieldforce_g_ad_intel<float,float>(fix->get_single_buffers());
     }
 
-    if (evflag_atom) fieldforce_g_peratom();
-  }
+    if (vflag_atom)
+      gc6->forward_comm(Grid3d::KSPACE,this,FORWARD_AD_PERATOM_G,7,sizeof(FFT_SCALAR),
+                        gc6_buf1,gc6_buf2,MPI_FFT_SCALAR);
 
-  if (termflag[2]) {
-    //perform calculations for arithmetic mixing
+  } else {
+    poisson_ik(work1_6, work2_6, density_fft_g, fft1_6, fft2_6,
+               nx_pppm_6, ny_pppm_6, nz_pppm_6, nfft_6, nxlo_fft_6,
+               nylo_fft_6, nzlo_fft_6, nxhi_fft_6, nyhi_fft_6, nzhi_fft_6,
+               nxlo_in_6, nylo_in_6, nzlo_in_6, nxhi_in_6, nyhi_in_6,
+               nzhi_in_6, energy_6, greensfn_6, fkx_6, fky_6, fkz_6,
+               fkx2_6, fky2_6, fkz2_6, vdx_brick_g, vdy_brick_g,
+               vdz_brick_g, virial_6, vg_6, vg2_6, u_brick_g, v0_brick_g,
+               v1_brick_g, v2_brick_g, v3_brick_g, v4_brick_g, v5_brick_g);
+
+    gc6->forward_comm(Grid3d::KSPACE,this,FORWARD_IK_G,3,sizeof(FFT_SCALAR),
+                      gc6_buf1,gc6_buf2,MPI_FFT_SCALAR);
 
     if (fix->precision() == FixIntel::PREC_MODE_MIXED) {
-      particle_map_intel<float,double>(delxinv_6, delyinv_6, delzinv_6, shift_6,
-                                       part2grid_6, nupper_6, nlower_6,
-                                       nxlo_out_6, nylo_out_6, nzlo_out_6,
-                                       nxhi_out_6, nyhi_out_6, nzhi_out_6,
-                                       fix->get_mixed_buffers());
-      make_rho_a_intel<float,double>(fix->get_mixed_buffers());
+      fieldforce_g_ik_intel<float,double>(fix->get_mixed_buffers());
     } else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE) {
-      particle_map_intel<double,double>(delxinv_6, delyinv_6, delzinv_6, shift_6,
-                                        part2grid_6, nupper_6, nlower_6, nxlo_out_6,
-                                        nylo_out_6, nzlo_out_6, nxhi_out_6,
-                                        nyhi_out_6, nzhi_out_6,
-                                        fix->get_double_buffers());
-      make_rho_a_intel<double,double>(fix->get_double_buffers());
+      fieldforce_g_ik_intel<double,double>(fix->get_double_buffers());
     } else {
-      particle_map_intel<float,float>(delxinv_6, delyinv_6, delzinv_6, shift_6,
+      fieldforce_g_ik_intel<float,float>(fix->get_single_buffers());
+    }
+
+    if (evflag_atom)
+      gc6->forward_comm(Grid3d::KSPACE,this,FORWARD_IK_PERATOM_G,6,sizeof(FFT_SCALAR),
+                        gc6_buf1,gc6_buf2,MPI_FFT_SCALAR);
+  }
+
+  if (evflag_atom) fieldforce_g_peratom();
+}
+
+void PPPMDispIntel::compute_dispersion_arith_intel()
+{
+  if (fix->precision() == FixIntel::PREC_MODE_MIXED) {
+    particle_map_intel<float,double>(delxinv_6, delyinv_6, delzinv_6, shift_6,
+                                     part2grid_6, nupper_6, nlower_6,
+                                     nxlo_out_6, nylo_out_6, nzlo_out_6,
+                                     nxhi_out_6, nyhi_out_6, nzhi_out_6,
+                                     fix->get_mixed_buffers());
+    make_rho_a_intel<float,double>(fix->get_mixed_buffers());
+  } else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE) {
+    particle_map_intel<double,double>(delxinv_6, delyinv_6, delzinv_6, shift_6,
                                       part2grid_6, nupper_6, nlower_6, nxlo_out_6,
                                       nylo_out_6, nzlo_out_6, nxhi_out_6,
                                       nyhi_out_6, nzhi_out_6,
-                                      fix->get_single_buffers());
-      make_rho_a_intel<float,float>(fix->get_single_buffers());
-    }
-
-    gc->reverse_comm(Grid3d::KSPACE,this,REVERSE_RHO_A,7,sizeof(FFT_SCALAR),
-                     gc_buf1,gc_buf2,MPI_FFT_SCALAR);
-
-    brick2fft_a();
-
-    if (differentiation_flag == 1) {
-      poisson_ad(work1_6, work2_6, density_fft_a3, fft1_6, fft2_6,
-                 nx_pppm_6, ny_pppm_6, nz_pppm_6, nfft_6, nxlo_fft_6,
-                 nylo_fft_6, nzlo_fft_6, nxhi_fft_6, nyhi_fft_6, nzhi_fft_6,
-                 nxlo_in_6, nylo_in_6, nzlo_in_6, nxhi_in_6, nyhi_in_6,
-                 nzhi_in_6, energy_6, greensfn_6, virial_6, vg_6, vg2_6,
-                 u_brick_a3, v0_brick_a3, v1_brick_a3, v2_brick_a3,
-                 v3_brick_a3, v4_brick_a3, v5_brick_a3);
-      poisson_2s_ad(density_fft_a0, density_fft_a6, u_brick_a0, v0_brick_a0,
-                    v1_brick_a0, v2_brick_a0, v3_brick_a0, v4_brick_a0,
-                    v5_brick_a0, u_brick_a6, v0_brick_a6, v1_brick_a6,
-                    v2_brick_a6, v3_brick_a6, v4_brick_a6, v5_brick_a6);
-      poisson_2s_ad(density_fft_a1, density_fft_a5, u_brick_a1, v0_brick_a1,
-                    v1_brick_a1, v2_brick_a1, v3_brick_a1, v4_brick_a1,
-                    v5_brick_a1, u_brick_a5, v0_brick_a5, v1_brick_a5,
-                    v2_brick_a5, v3_brick_a5, v4_brick_a5, v5_brick_a5);
-      poisson_2s_ad(density_fft_a2, density_fft_a4, u_brick_a2, v0_brick_a2,
-                    v1_brick_a2, v2_brick_a2, v3_brick_a2, v4_brick_a2,
-                    v5_brick_a2, u_brick_a4, v0_brick_a4, v1_brick_a4,
-                    v2_brick_a4, v3_brick_a4, v4_brick_a4, v5_brick_a4);
-
-      gc6->forward_comm(Grid3d::KSPACE,this,FORWARD_AD_A,7,sizeof(FFT_SCALAR),
-                        gc6_buf1,gc6_buf2,MPI_FFT_SCALAR);
-
-      if (fix->precision() == FixIntel::PREC_MODE_MIXED) {
-        fieldforce_a_ad_intel<float,double>(fix->get_mixed_buffers());
-      } else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE) {
-        fieldforce_a_ad_intel<double,double>(fix->get_double_buffers());
-      } else {
-        fieldforce_a_ad_intel<float,float>(fix->get_single_buffers());
-      }
-
-      if (evflag_atom)
-        gc6->forward_comm(Grid3d::KSPACE,this,FORWARD_AD_PERATOM_A,42,sizeof(FFT_SCALAR),
-                          gc6_buf1,gc6_buf2,MPI_FFT_SCALAR);
-
-    }  else {
-      poisson_ik(work1_6, work2_6, density_fft_a3, fft1_6, fft2_6,
-                 nx_pppm_6, ny_pppm_6, nz_pppm_6, nfft_6, nxlo_fft_6,
-                 nylo_fft_6, nzlo_fft_6, nxhi_fft_6, nyhi_fft_6, nzhi_fft_6,
-                 nxlo_in_6, nylo_in_6, nzlo_in_6, nxhi_in_6, nyhi_in_6,
-                 nzhi_in_6, energy_6, greensfn_6, fkx_6, fky_6, fkz_6,fkx2_6,
-                 fky2_6, fkz2_6, vdx_brick_a3, vdy_brick_a3, vdz_brick_a3,
-                 virial_6, vg_6, vg2_6, u_brick_a3, v0_brick_a3, v1_brick_a3,
-                 v2_brick_a3, v3_brick_a3, v4_brick_a3, v5_brick_a3);
-      poisson_2s_ik(density_fft_a0, density_fft_a6, vdx_brick_a0,
-                    vdy_brick_a0, vdz_brick_a0, vdx_brick_a6, vdy_brick_a6,
-                    vdz_brick_a6, u_brick_a0, v0_brick_a0, v1_brick_a0,
-                    v2_brick_a0, v3_brick_a0, v4_brick_a0, v5_brick_a0,
-                    u_brick_a6, v0_brick_a6, v1_brick_a6, v2_brick_a6,
-                    v3_brick_a6, v4_brick_a6, v5_brick_a6);
-      poisson_2s_ik(density_fft_a1, density_fft_a5, vdx_brick_a1,
-                    vdy_brick_a1, vdz_brick_a1, vdx_brick_a5, vdy_brick_a5,
-                    vdz_brick_a5, u_brick_a1, v0_brick_a1, v1_brick_a1,
-                    v2_brick_a1, v3_brick_a1, v4_brick_a1, v5_brick_a1,
-                    u_brick_a5, v0_brick_a5, v1_brick_a5, v2_brick_a5,
-                    v3_brick_a5, v4_brick_a5, v5_brick_a5);
-      poisson_2s_ik(density_fft_a2, density_fft_a4, vdx_brick_a2,
-                    vdy_brick_a2, vdz_brick_a2, vdx_brick_a4, vdy_brick_a4,
-                    vdz_brick_a4, u_brick_a2, v0_brick_a2, v1_brick_a2,
-                    v2_brick_a2, v3_brick_a2, v4_brick_a2, v5_brick_a2,
-                    u_brick_a4, v0_brick_a4, v1_brick_a4, v2_brick_a4,
-                    v3_brick_a4, v4_brick_a4, v5_brick_a4);
-
-      gc6->forward_comm(Grid3d::KSPACE,this,FORWARD_IK_A,18,sizeof(FFT_SCALAR),
-                        gc6_buf1,gc6_buf2,MPI_FFT_SCALAR);
-
-      if (fix->precision() == FixIntel::PREC_MODE_MIXED) {
-        fieldforce_a_ik_intel<float,double>(fix->get_mixed_buffers());
-      } else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE) {
-        fieldforce_a_ik_intel<double,double>(fix->get_double_buffers());
-      } else {
-        fieldforce_a_ik_intel<float,float>(fix->get_single_buffers());
-      }
-
-      if (evflag_atom)
-        gc6->forward_comm(Grid3d::KSPACE,this,FORWARD_IK_PERATOM_A,49,sizeof(FFT_SCALAR),
-                          gc6_buf1,gc6_buf2,MPI_FFT_SCALAR);
-    }
-
-    if (evflag_atom) fieldforce_a_peratom();
+                                      fix->get_double_buffers());
+    make_rho_a_intel<double,double>(fix->get_double_buffers());
+  } else {
+    particle_map_intel<float,float>(delxinv_6, delyinv_6, delzinv_6, shift_6,
+                                    part2grid_6, nupper_6, nlower_6, nxlo_out_6,
+                                    nylo_out_6, nzlo_out_6, nxhi_out_6,
+                                    nyhi_out_6, nzhi_out_6,
+                                    fix->get_single_buffers());
+    make_rho_a_intel<float,float>(fix->get_single_buffers());
   }
 
-  if (termflag[3]) {
+  gc->reverse_comm(Grid3d::KSPACE,this,REVERSE_RHO_A,7,sizeof(FFT_SCALAR),
+                   gc_buf1,gc_buf2,MPI_FFT_SCALAR);
 
-    // perform calculations if no mixing rule applies
+  brick2fft_a();
+
+  if (differentiation_flag == 1) {
+    poisson_ad(work1_6, work2_6, density_fft_a3, fft1_6, fft2_6,
+               nx_pppm_6, ny_pppm_6, nz_pppm_6, nfft_6, nxlo_fft_6,
+               nylo_fft_6, nzlo_fft_6, nxhi_fft_6, nyhi_fft_6, nzhi_fft_6,
+               nxlo_in_6, nylo_in_6, nzlo_in_6, nxhi_in_6, nyhi_in_6,
+               nzhi_in_6, energy_6, greensfn_6, virial_6, vg_6, vg2_6,
+               u_brick_a3, v0_brick_a3, v1_brick_a3, v2_brick_a3,
+               v3_brick_a3, v4_brick_a3, v5_brick_a3);
+    poisson_2s_ad(density_fft_a0, density_fft_a6, u_brick_a0, v0_brick_a0,
+                  v1_brick_a0, v2_brick_a0, v3_brick_a0, v4_brick_a0,
+                  v5_brick_a0, u_brick_a6, v0_brick_a6, v1_brick_a6,
+                  v2_brick_a6, v3_brick_a6, v4_brick_a6, v5_brick_a6);
+    poisson_2s_ad(density_fft_a1, density_fft_a5, u_brick_a1, v0_brick_a1,
+                  v1_brick_a1, v2_brick_a1, v3_brick_a1, v4_brick_a1,
+                  v5_brick_a1, u_brick_a5, v0_brick_a5, v1_brick_a5,
+                  v2_brick_a5, v3_brick_a5, v4_brick_a5, v5_brick_a5);
+    poisson_2s_ad(density_fft_a2, density_fft_a4, u_brick_a2, v0_brick_a2,
+                  v1_brick_a2, v2_brick_a2, v3_brick_a2, v4_brick_a2,
+                  v5_brick_a2, u_brick_a4, v0_brick_a4, v1_brick_a4,
+                  v2_brick_a4, v3_brick_a4, v4_brick_a4, v5_brick_a4);
+
+    gc6->forward_comm(Grid3d::KSPACE,this,FORWARD_AD_A,7,sizeof(FFT_SCALAR),
+                      gc6_buf1,gc6_buf2,MPI_FFT_SCALAR);
 
     if (fix->precision() == FixIntel::PREC_MODE_MIXED) {
-      particle_map_intel<float,double>(delxinv_6, delyinv_6, delzinv_6, shift_6,
-                                       part2grid_6, nupper_6, nlower_6, nxlo_out_6,
-                                       nylo_out_6, nzlo_out_6, nxhi_out_6,
-                                       nyhi_out_6, nzhi_out_6,
-                                       fix->get_mixed_buffers());
-      make_rho_none_intel<float,double>(fix->get_mixed_buffers());
+      fieldforce_a_ad_intel<float,double>(fix->get_mixed_buffers());
     } else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE) {
-      particle_map_intel<double,double>(delxinv_6, delyinv_6, delzinv_6, shift_6,
-                                        part2grid_6, nupper_6, nlower_6, nxlo_out_6,
-                                        nylo_out_6, nzlo_out_6, nxhi_out_6,
-                                        nyhi_out_6, nzhi_out_6,
-                                        fix->get_double_buffers());
-      make_rho_none_intel<double,double>(fix->get_double_buffers());
+      fieldforce_a_ad_intel<double,double>(fix->get_double_buffers());
     } else {
-      particle_map_intel<float,float>(delxinv_6, delyinv_6, delzinv_6, shift_6,
+      fieldforce_a_ad_intel<float,float>(fix->get_single_buffers());
+    }
+
+    if (evflag_atom)
+      gc6->forward_comm(Grid3d::KSPACE,this,FORWARD_AD_PERATOM_A,42,sizeof(FFT_SCALAR),
+                        gc6_buf1,gc6_buf2,MPI_FFT_SCALAR);
+
+  }  else {
+    poisson_ik(work1_6, work2_6, density_fft_a3, fft1_6, fft2_6,
+               nx_pppm_6, ny_pppm_6, nz_pppm_6, nfft_6, nxlo_fft_6,
+               nylo_fft_6, nzlo_fft_6, nxhi_fft_6, nyhi_fft_6, nzhi_fft_6,
+               nxlo_in_6, nylo_in_6, nzlo_in_6, nxhi_in_6, nyhi_in_6,
+               nzhi_in_6, energy_6, greensfn_6, fkx_6, fky_6, fkz_6,fkx2_6,
+               fky2_6, fkz2_6, vdx_brick_a3, vdy_brick_a3, vdz_brick_a3,
+               virial_6, vg_6, vg2_6, u_brick_a3, v0_brick_a3, v1_brick_a3,
+               v2_brick_a3, v3_brick_a3, v4_brick_a3, v5_brick_a3);
+    poisson_2s_ik(density_fft_a0, density_fft_a6, vdx_brick_a0,
+                  vdy_brick_a0, vdz_brick_a0, vdx_brick_a6, vdy_brick_a6,
+                  vdz_brick_a6, u_brick_a0, v0_brick_a0, v1_brick_a0,
+                  v2_brick_a0, v3_brick_a0, v4_brick_a0, v5_brick_a0,
+                  u_brick_a6, v0_brick_a6, v1_brick_a6, v2_brick_a6,
+                  v3_brick_a6, v4_brick_a6, v5_brick_a6);
+    poisson_2s_ik(density_fft_a1, density_fft_a5, vdx_brick_a1,
+                  vdy_brick_a1, vdz_brick_a1, vdx_brick_a5, vdy_brick_a5,
+                  vdz_brick_a5, u_brick_a1, v0_brick_a1, v1_brick_a1,
+                  v2_brick_a1, v3_brick_a1, v4_brick_a1, v5_brick_a1,
+                  u_brick_a5, v0_brick_a5, v1_brick_a5, v2_brick_a5,
+                  v3_brick_a5, v4_brick_a5, v5_brick_a5);
+    poisson_2s_ik(density_fft_a2, density_fft_a4, vdx_brick_a2,
+                  vdy_brick_a2, vdz_brick_a2, vdx_brick_a4, vdy_brick_a4,
+                  vdz_brick_a4, u_brick_a2, v0_brick_a2, v1_brick_a2,
+                  v2_brick_a2, v3_brick_a2, v4_brick_a2, v5_brick_a2,
+                  u_brick_a4, v0_brick_a4, v1_brick_a4, v2_brick_a4,
+                  v3_brick_a4, v4_brick_a4, v5_brick_a4);
+
+    gc6->forward_comm(Grid3d::KSPACE,this,FORWARD_IK_A,18,sizeof(FFT_SCALAR),
+                      gc6_buf1,gc6_buf2,MPI_FFT_SCALAR);
+
+    if (fix->precision() == FixIntel::PREC_MODE_MIXED) {
+      fieldforce_a_ik_intel<float,double>(fix->get_mixed_buffers());
+    } else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE) {
+      fieldforce_a_ik_intel<double,double>(fix->get_double_buffers());
+    } else {
+      fieldforce_a_ik_intel<float,float>(fix->get_single_buffers());
+    }
+
+    if (evflag_atom)
+      gc6->forward_comm(Grid3d::KSPACE,this,FORWARD_IK_PERATOM_A,49,sizeof(FFT_SCALAR),
+                        gc6_buf1,gc6_buf2,MPI_FFT_SCALAR);
+  }
+
+  if (evflag_atom) fieldforce_a_peratom();
+}
+
+void PPPMDispIntel::compute_dispersion_none_intel()
+{
+  if (fix->precision() == FixIntel::PREC_MODE_MIXED) {
+    particle_map_intel<float,double>(delxinv_6, delyinv_6, delzinv_6, shift_6,
+                                     part2grid_6, nupper_6, nlower_6, nxlo_out_6,
+                                     nylo_out_6, nzlo_out_6, nxhi_out_6,
+                                     nyhi_out_6, nzhi_out_6,
+                                     fix->get_mixed_buffers());
+    make_rho_none_intel<float,double>(fix->get_mixed_buffers());
+  } else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE) {
+    particle_map_intel<double,double>(delxinv_6, delyinv_6, delzinv_6, shift_6,
                                       part2grid_6, nupper_6, nlower_6, nxlo_out_6,
                                       nylo_out_6, nzlo_out_6, nxhi_out_6,
                                       nyhi_out_6, nzhi_out_6,
-                                      fix->get_single_buffers());
-      make_rho_none_intel<float,float>(fix->get_single_buffers());
+                                      fix->get_double_buffers());
+    make_rho_none_intel<double,double>(fix->get_double_buffers());
+  } else {
+    particle_map_intel<float,float>(delxinv_6, delyinv_6, delzinv_6, shift_6,
+                                    part2grid_6, nupper_6, nlower_6, nxlo_out_6,
+                                    nylo_out_6, nzlo_out_6, nxhi_out_6,
+                                    nyhi_out_6, nzhi_out_6,
+                                    fix->get_single_buffers());
+    make_rho_none_intel<float,float>(fix->get_single_buffers());
+  }
+
+  gc->reverse_comm(Grid3d::KSPACE,this,REVERSE_RHO_NONE,1,sizeof(FFT_SCALAR),
+                   gc_buf1,gc_buf2,MPI_FFT_SCALAR);
+
+  brick2fft_none();
+
+  if (differentiation_flag == 1) {
+
+    int n = 0;
+    for (int k = 0; k<nsplit_alloc/2; k++) {
+      poisson_none_ad(n,n+1,density_fft_none[n],density_fft_none[n+1],
+                      u_brick_none[n],u_brick_none[n+1],
+                      v0_brick_none, v1_brick_none, v2_brick_none,
+                      v3_brick_none, v4_brick_none, v5_brick_none);
+      n += 2;
     }
 
-    gc->reverse_comm(Grid3d::KSPACE,this,REVERSE_RHO_NONE,1,sizeof(FFT_SCALAR),
-                     gc_buf1,gc_buf2,MPI_FFT_SCALAR);
+    gc6->forward_comm(Grid3d::KSPACE,this,FORWARD_AD_NONE,1,sizeof(FFT_SCALAR),
+                      gc6_buf1,gc6_buf2,MPI_FFT_SCALAR);
 
-    brick2fft_none();
-
-    if (differentiation_flag == 1) {
-
-      int n = 0;
-      for (int k = 0; k<nsplit_alloc/2; k++) {
-        poisson_none_ad(n,n+1,density_fft_none[n],density_fft_none[n+1],
-                        u_brick_none[n],u_brick_none[n+1],
-                        v0_brick_none, v1_brick_none, v2_brick_none,
-                        v3_brick_none, v4_brick_none, v5_brick_none);
-        n += 2;
-      }
-
-      gc6->forward_comm(Grid3d::KSPACE,this,FORWARD_AD_NONE,1,sizeof(FFT_SCALAR),
-                        gc6_buf1,gc6_buf2,MPI_FFT_SCALAR);
-
-      if (fix->precision() == FixIntel::PREC_MODE_MIXED) {
-        fieldforce_none_ad_intel<float,double>(fix->get_mixed_buffers());
-      } else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE) {
-        fieldforce_none_ad_intel<double,double>(fix->get_double_buffers());
-      } else {
-        fieldforce_none_ad_intel<float,float>(fix->get_single_buffers());
-      }
-
-      if (vflag_atom)
-        gc6->forward_comm(Grid3d::KSPACE,this,FORWARD_AD_PERATOM_NONE,6,sizeof(FFT_SCALAR),
-                          gc6_buf1,gc6_buf2,MPI_FFT_SCALAR);
-
+    if (fix->precision() == FixIntel::PREC_MODE_MIXED) {
+      fieldforce_none_ad_intel<float,double>(fix->get_mixed_buffers());
+    } else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE) {
+      fieldforce_none_ad_intel<double,double>(fix->get_double_buffers());
     } else {
-      int n = 0;
-      for (int k = 0; k<nsplit_alloc/2; k++) {
-
-        poisson_none_ik(n,n+1,density_fft_none[n], density_fft_none[n+1],
-                        vdx_brick_none[n], vdy_brick_none[n],
-                        vdz_brick_none[n], vdx_brick_none[n+1],
-                        vdy_brick_none[n+1], vdz_brick_none[n+1],
-                        u_brick_none, v0_brick_none, v1_brick_none,
-                        v2_brick_none, v3_brick_none, v4_brick_none,
-                        v5_brick_none);
-        n += 2;
-      }
-
-      gc6->forward_comm(Grid3d::KSPACE,this,FORWARD_IK_NONE,3,sizeof(FFT_SCALAR),
-                        gc6_buf1,gc6_buf2,MPI_FFT_SCALAR);
-
-      if (fix->precision() == FixIntel::PREC_MODE_MIXED) {
-        fieldforce_none_ik_intel<float,double>(fix->get_mixed_buffers());
-      } else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE) {
-        fieldforce_none_ik_intel<double,double>(fix->get_double_buffers());
-      } else {
-        fieldforce_none_ik_intel<float,float>(fix->get_single_buffers());
-      }
-
-      if (evflag_atom)
-        gc6->forward_comm(Grid3d::KSPACE,this,FORWARD_IK_PERATOM_NONE,7,sizeof(FFT_SCALAR),
-                          gc6_buf1,gc6_buf2,MPI_FFT_SCALAR);
+      fieldforce_none_ad_intel<float,float>(fix->get_single_buffers());
     }
 
-    if (evflag_atom) fieldforce_none_peratom();
+    if (vflag_atom)
+      gc6->forward_comm(Grid3d::KSPACE,this,FORWARD_AD_PERATOM_NONE,6,sizeof(FFT_SCALAR),
+                        gc6_buf1,gc6_buf2,MPI_FFT_SCALAR);
+
+  } else {
+    int n = 0;
+    for (int k = 0; k<nsplit_alloc/2; k++) {
+
+      poisson_none_ik(n,n+1,density_fft_none[n], density_fft_none[n+1],
+                      vdx_brick_none[n], vdy_brick_none[n],
+                      vdz_brick_none[n], vdx_brick_none[n+1],
+                      vdy_brick_none[n+1], vdz_brick_none[n+1],
+                      u_brick_none, v0_brick_none, v1_brick_none,
+                      v2_brick_none, v3_brick_none, v4_brick_none,
+                      v5_brick_none);
+      n += 2;
+    }
+
+    gc6->forward_comm(Grid3d::KSPACE,this,FORWARD_IK_NONE,3,sizeof(FFT_SCALAR),
+                      gc6_buf1,gc6_buf2,MPI_FFT_SCALAR);
+
+    if (fix->precision() == FixIntel::PREC_MODE_MIXED) {
+      fieldforce_none_ik_intel<float,double>(fix->get_mixed_buffers());
+    } else if (fix->precision() == FixIntel::PREC_MODE_DOUBLE) {
+      fieldforce_none_ik_intel<double,double>(fix->get_double_buffers());
+    } else {
+      fieldforce_none_ik_intel<float,float>(fix->get_single_buffers());
+    }
+
+    if (evflag_atom)
+      gc6->forward_comm(Grid3d::KSPACE,this,FORWARD_IK_PERATOM_NONE,7,sizeof(FFT_SCALAR),
+                        gc6_buf1,gc6_buf2,MPI_FFT_SCALAR);
   }
 
-  // update qsum and qsqsum, if atom count has changed and energy needed
+  if (evflag_atom) fieldforce_none_peratom();
+}
 
-  if ((eflag_global || eflag_atom) && atom->natoms != natoms_original) {
-    qsum_qsq();
-    natoms_original = atom->natoms;
-  }
-
-  // sum energy across procs and add in volume-dependent term
-
+void PPPMDispIntel::sum_global_energy_and_virial()
+{
+  int i;
   const double qscale = force->qqrd2e * scale;
   if (eflag_global) {
     double energy_all;
@@ -646,31 +651,34 @@ void PPPMDispIntel::compute(int eflag, int vflag)
     energy_1 *= qscale;
   }
 
-  // sum virial across procs
-
   if (vflag_global) {
     double virial_all[6];
     MPI_Allreduce(virial_1,virial_all,6,MPI_DOUBLE,MPI_SUM,world);
     for (i = 0; i < 6; i++) virial[i] = 0.5*qscale*volume*virial_all[i];
     MPI_Allreduce(virial_6,virial_all,6,MPI_DOUBLE,MPI_SUM,world);
     for (i = 0; i < 6; i++) virial[i] += 0.5*volume*virial_all[i];
-    if (termflag[1]+termflag[2]+termflag[3]) {
+    if (termflag[TERM_DISP_GEOM]+termflag[TERM_DISP_ARITH]+termflag[TERM_DISP_NONE]) {
       double a =  MY_PI*MY_PIS/(6*volume)*std::pow(g_ewald_6,3)*csumij;
       virial[0] -= a;
       virial[1] -= a;
       virial[2] -= a;
     }
   }
+}
 
+void PPPMDispIntel::apply_peratom_corrections()
+{
+  int i;
+  const double qscale = force->qqrd2e * scale;
   if (eflag_atom) {
-    if (termflag[0]) {
+    if (termflag[TERM_COUL]) {
       double *q = atom->q;
       for (i = 0; i < atom->nlocal; i++) {
         eatom[i] -= qscale*g_ewald*q[i]*q[i]/MY_PIS + qscale*MY_PI2*q[i]*
           qsum / (g_ewald*g_ewald*volume); //coulomb self energy correction
       }
     }
-    if (termflag[1] + termflag[2] + termflag[3]) {
+    if (termflag[TERM_DISP_GEOM] + termflag[TERM_DISP_ARITH] + termflag[TERM_DISP_NONE]) {
       int tmp;
       for (i = 0; i < atom->nlocal; i++) {
         tmp = atom->type[i];
@@ -681,7 +689,7 @@ void PPPMDispIntel::compute(int eflag, int vflag)
   }
 
   if (vflag_atom) {
-    if (termflag[1] + termflag[2] + termflag[3]) {
+    if (termflag[TERM_DISP_GEOM] + termflag[TERM_DISP_ARITH] + termflag[TERM_DISP_NONE]) {
       int tmp;
       for (i = 0; i < atom->nlocal; i++) {
         tmp = atom->type[i];
@@ -691,17 +699,6 @@ void PPPMDispIntel::compute(int eflag, int vflag)
       }
     }
   }
-
-
-  // 2d slab correction
-
-  if (slabflag) slabcorr(eflag);
-  if (termflag[0]) energy += energy_1;
-  if (termflag[1] + termflag[2] + termflag[3]) energy += energy_6;
-
-  // convert atoms back from lamda to box coords
-
-  if (triclinic) domain->lamda2x(atom->nlocal);
 }
 
 
