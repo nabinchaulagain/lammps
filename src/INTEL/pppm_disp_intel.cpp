@@ -3115,89 +3115,58 @@ void PPPMDispIntel::fieldforce_none_ad_intel(IntelBuffers<flt_t,acc_t> * /*buffe
 
 void PPPMDispIntel::precompute_rho()
 {
-  half_rho_scale = (rho_points - 1.)/2.;
+  half_rho_scale = (rho_points - 1.) / 2.;
   half_rho_scale_plus = half_rho_scale + 0.5;
 
   if (termflag[0]) {
-    for (int i = 0; i < rho_points; i++) {
-      FFT_SCALAR dx = -1. + 1./half_rho_scale * (FFT_SCALAR)i;
-      #if defined(LMP_SIMD_COMPILER)
-#if defined(USE_OMP_SIMD)
-      #pragma omp simd
-#else
-      #pragma simd
-#endif
-      #endif
-      for (int k=nlower; k<=nupper;k++) {
-        FFT_SCALAR r1 = ZEROF;
-        for (int l=order-1; l>=0; l--) {
-          r1 = rho_coeff[l][k] + r1*dx;
-        }
-        rho_lookup[i][k-nlower] = r1;
-      }
-      for (int k = nupper-nlower+1; k < INTEL_P3M_ALIGNED_MAXORDER; k++) {
-        rho_lookup[i][k] = 0;
-      }
-      if (differentiation_flag == 1) {
-        #if defined(LMP_SIMD_COMPILER)
-#if defined(USE_OMP_SIMD)
-        #pragma omp simd
-#else
-        #pragma simd
-#endif
-        #endif
-        for (int k=nlower; k<=nupper;k++) {
-          FFT_SCALAR r1 = ZEROF;
-          for (int l=order-2; l>=0; l--) {
-            r1 = drho_coeff[l][k] + r1*dx;
-          }
-          drho_lookup[i][k-nlower] = r1;
-        }
-        for (int k = nupper-nlower+1; k < INTEL_P3M_ALIGNED_MAXORDER; k++) {
-          drho_lookup[i][k] = 0;
-        }
-      }
-    }
+    precompute_rho_helper(order, nlower, nupper, rho_coeff, rho_lookup, drho_coeff, drho_lookup);
   }
 
-  if (termflag[1]+termflag[2]+termflag[3]) {
-    for (int i = 0; i < rho_points; i++) {
-      FFT_SCALAR dx = -1. + 1./half_rho_scale * (FFT_SCALAR)i;
-      #if defined(LMP_SIMD_COMPILER)
+  if (termflag[1] || termflag[2] || termflag[3]) {
+    precompute_rho_helper(order_6, nlower_6, nupper_6, rho_coeff_6, rho6_lookup, drho_coeff_6, drho6_lookup);
+  }
+}
+
+void PPPMDispIntel::precompute_rho_helper(int order_val, int nlower_val, int nupper_val, FFT_SCALAR **coeff, FFT_SCALAR **lookup, FFT_SCALAR **dcoeff, FFT_SCALAR **dlookup)
+{
+  for (int i = 0; i < rho_points; i++) {
+    FFT_SCALAR dx = -1.0 + (FFT_SCALAR)i / half_rho_scale;
+
+#if defined(LMP_SIMD_COMPILER)
 #if defined(USE_OMP_SIMD)
-      #pragma omp simd
+#pragma omp simd
 #else
-      #pragma simd
+#pragma simd
 #endif
-      #endif
-      for (int k=nlower_6; k<=nupper_6;k++) {
+#endif
+    for (int k = nlower_val; k <= nupper_val; k++) {
+      FFT_SCALAR r1 = ZEROF;
+      for (int l = order_val - 1; l >= 0; l--) {
+        r1 = coeff[l][k] + r1 * dx;
+      }
+      lookup[i][k - nlower_val] = r1;
+    }
+    for (int k = nupper_val - nlower_val + 1; k < INTEL_P3M_ALIGNED_MAXORDER; k++) {
+      lookup[i][k] = 0;
+    }
+
+    if (differentiation_flag == 1) {
+#if defined(LMP_SIMD_COMPILER)
+#if defined(USE_OMP_SIMD)
+#pragma omp simd
+#else
+#pragma simd
+#endif
+#endif
+      for (int k = nlower_val; k <= nupper_val; k++) {
         FFT_SCALAR r1 = ZEROF;
-        for (int l=order_6-1; l>=0; l--) {
-          r1 = rho_coeff_6[l][k] + r1*dx;
+        for (int l = order_val - 2; l >= 0; l--) {
+          r1 = dcoeff[l][k] + r1 * dx;
         }
-        rho6_lookup[i][k-nlower_6] = r1;
+        dlookup[i][k - nlower_val] = r1;
       }
-      for (int k = nupper_6-nlower_6+1; k < INTEL_P3M_ALIGNED_MAXORDER; k++) {
-        rho6_lookup[i][k] = 0;
-      }
-      if (differentiation_flag == 1) {
-        #if defined(LMP_SIMD_COMPILER)
-#if defined(USE_OMP_SIMD)
-        #pragma omp simd
-#else
-        #pragma simd
-#endif
-        #endif
-        for (int k=nlower_6; k<=nupper_6;k++) {
-          FFT_SCALAR r1 = ZEROF;
-          for (int l=order_6-2; l>=0; l--) {
-            r1 = drho_coeff_6[l][k] + r1*dx;
-          }
-          drho6_lookup[i][k-nlower_6] = r1;
-        }
-        for (int k = nupper_6-nlower_6+1; k < INTEL_P3M_ALIGNED_MAXORDER; k++) {
-          drho6_lookup[i][k] = 0;
-        }
+      for (int k = nupper_val - nlower_val + 1; k < INTEL_P3M_ALIGNED_MAXORDER; k++) {
+        dlookup[i][k] = 0;
       }
     }
   }
