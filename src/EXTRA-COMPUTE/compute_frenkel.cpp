@@ -1005,270 +1005,238 @@ int ComputeFrenkel::site_tag2index(tagint tag)
 
 /****************************************************************************/
 
+void ComputeFrenkel::pack_ghost_sites(
+    int &max_size,
+    std::vector<int> &n_send,
+    std::vector<int> &idx,
+    std::vector<std::vector<tagint>> &tag_send,
+    std::vector<std::vector<std::array<double, 3>>> &x_send,
+    std::vector<std::vector<int>> &occup_send,
+    std::vector<std::vector<tagint>> &clusterID_send)
+{
+    const int nprocs = comm->nprocs;
+    const int NINCR = 100;
+    std::vector<bool> already_sent(nprocs, false);
+
+    for (int k = 0; k < nlatsites; k++) {
+        double dr[2][3];
+        dr[0][0] = latsites[k][0] - domain->sublo[0];
+        dr[0][1] = latsites[k][1] - domain->sublo[1];
+        dr[0][2] = latsites[k][2] - domain->sublo[2];
+        dr[1][0] = domain->subhi[0] - latsites[k][0];
+        dr[1][1] = domain->subhi[1] - latsites[k][1];
+        dr[1][2] = domain->subhi[2] - latsites[k][2];
+
+        std::fill(already_sent.begin(), already_sent.end(), false);
+
+        for (int ix = -1; ix <= 1; ix++) {
+            if (ix == -1 && comm->myloc[0] == 0 && !domain->xperiodic) continue;
+            if (ix == 1 && comm->myloc[0] == comm->procgrid[0] - 1 && !domain->xperiodic) continue;
+            if (ix == -1 && dr[0][0] > cutoff + SMALL) continue;
+            if (ix == 1 && dr[1][0] > cutoff + SMALL) continue;
+
+            for (int iy = -1; iy <= 1; iy++) {
+                if (iy == -1 && comm->myloc[1] == 0 && !domain->yperiodic) continue;
+                if (iy == 1 && comm->myloc[1] == comm->procgrid[1] - 1 && !domain->yperiodic) continue;
+                if (iy == -1 && dr[0][1] > cutoff + SMALL) continue;
+                if (iy == 1 && dr[1][1] > cutoff + SMALL) continue;
+
+                for (int iz = -1; iz <= 1; iz++) {
+                    if (ix == 0 && iy == 0 && iz == 0) continue;
+                    if (iz == -1 && comm->myloc[2] == 0 && !domain->zperiodic) continue;
+                    if (iz == 1 && comm->myloc[2] == comm->procgrid[2] - 1 && !domain->zperiodic) continue;
+                    if (iz == -1 && dr[0][2] > cutoff + SMALL) continue;
+                    if (iz == 1 && dr[1][2] > cutoff + SMALL) continue;
+
+                    int p = process_neighbor(ix, iy, iz);
+                    if (already_sent[p]) continue;
+
+                    n_send[p] += 1;
+                    if (n_send[p] > max_size) {
+                        max_size += NINCR;
+                        for (int i = 0; i < nprocs; i++) {
+                            tag_send[i].resize(max_size, -1);
+                            x_send[i].resize(max_size, {0.0, 0.0, 0.0});
+                            occup_send[i].resize(max_size, 0);
+                            clusterID_send[i].resize(max_size, 0);
+                        }
+                    }
+
+                    int curr_idx = idx[p];
+                    tag_send[p][curr_idx] = site_tag[k];
+                    occup_send[p][curr_idx] = noccupants[k];
+                    if (clusterID) clusterID_send[p][curr_idx] = clusterID[k];
+                    x_send[p][curr_idx][0] = latsites[k][0];
+                    x_send[p][curr_idx][1] = latsites[k][1];
+                    x_send[p][curr_idx][2] = latsites[k][2];
+
+                    idx[p] += 1;
+                    already_sent[p] = true;
+                }
+            }
+        }
+    }
+}
+
+void ComputeFrenkel::exchange_ghost_counts(
+    const std::vector<int> &n_send,
+    std::vector<int> &n_recv)
+{
+    const int me = comm->me;
+    const int nprocs = comm->nprocs;
+
+    std::vector<MPI_Request> send_request(nprocs, MPI_REQUEST_NULL);
+    std::vector<MPI_Request> recv_request(nprocs, MPI_REQUEST_NULL);
+    std::vector<MPI_Status> send_status(nprocs);
+    std::vector<MPI_Status> recv_status(nprocs);
+
+    for (int p = 0; p < nprocs; p++) {
+        if (p == me) {
+            n_recv[p] = n_send[p];
+        } else {
+            MPI_Isend(&n_send[p], 1, MPI_INT, p, me, world, &send_request[p]);
+            MPI_Irecv(&n_recv[p], 1, MPI_INT, p, p, world, &recv_request[p]);
+        }
+    }
+
+    if (nprocs > 1) {
+        MPI_Waitall(nprocs, send_request.data(), send_status.data());
+        MPI_Waitall(nprocs, recv_request.data(), recv_status.data());
+    }
+}
+
+void ComputeFrenkel::exchange_ghost_data(
+    const std::vector<int> &n_send,
+    const std::vector<int> &n_recv,
+    const std::vector<std::vector<tagint>> &tag_send,
+    const std::vector<std::vector<std::array<double, 3>>> &x_send,
+    const std::vector<std::vector<int>> &occup_send,
+    const std::vector<std::vector<tagint>> &clusterID_send,
+    std::vector<std::vector<tagint>> &tag_recv,
+    std::vector<std::vector<std::array<double, 3>>> &x_recv,
+    std::vector<std::vector<int>> &occup_recv,
+    std::vector<std::vector<tagint>> &clusterID_recv)
+{
+    const int me = comm->me;
+    const int nprocs = comm->nprocs;
+
+    int max_recv_size = 0;
+    for (int p = 0; p < nprocs; p++) {
+        max_recv_size = MAX(max_recv_size, n_recv[p]);
+    }
+
+    if (max_recv_size == 0) return;
+
+    tag_recv.assign(nprocs, std::vector<tagint>());
+    x_recv.assign(nprocs, std::vector<std::array<double, 3>>());
+    occup_recv.assign(nprocs, std::vector<int>());
+    clusterID_recv.assign(nprocs, std::vector<tagint>());
+
+    for (int p = 0; p < nprocs; p++) {
+        tag_recv[p].resize(n_recv[p], 0);
+        x_recv[p].resize(n_recv[p], {0.0, 0.0, 0.0});
+        occup_recv[p].resize(n_recv[p], 0);
+        clusterID_recv[p].resize(n_recv[p], 0);
+    }
+
+    std::vector<std::vector<MPI_Request>> send_requests(4, std::vector<MPI_Request>(nprocs, MPI_REQUEST_NULL));
+    std::vector<std::vector<MPI_Request>> recv_requests(4, std::vector<MPI_Request>(nprocs, MPI_REQUEST_NULL));
+    std::vector<std::vector<MPI_Status>> send_statuses(4, std::vector<MPI_Status>(nprocs));
+    std::vector<std::vector<MPI_Status>> recv_statuses(4, std::vector<MPI_Status>(nprocs));
+
+    for (int p = 0; p < nprocs; p++) {
+        if (p == me) {
+            for (int i = 0; i < n_send[p]; i++) {
+                tag_recv[p][i] = tag_send[p][i];
+                occup_recv[p][i] = occup_send[p][i];
+                clusterID_recv[p][i] = clusterID_send[p][i];
+                x_recv[p][i] = x_send[p][i];
+            }
+            continue;
+        }
+
+        if (n_send[p] > 0) {
+            MPI_Isend(tag_send[p].data(), n_send[p], MPI_LMP_TAGINT, p, me, world, &send_requests[0][p]);
+            MPI_Isend(&x_send[p][0][0], n_send[p] * 3, MPI_DOUBLE, p, me + nprocs, world, &send_requests[1][p]);
+            MPI_Isend(occup_send[p].data(), n_send[p], MPI_INT, p, me + nprocs * 2, world, &send_requests[2][p]);
+            MPI_Isend(clusterID_send[p].data(), n_send[p], MPI_LMP_TAGINT, p, me + nprocs * 3, world, &send_requests[3][p]);
+        }
+
+        if (n_recv[p] > 0) {
+            MPI_Irecv(tag_recv[p].data(), n_recv[p], MPI_LMP_TAGINT, p, p, world, &recv_requests[0][p]);
+            MPI_Irecv(&x_recv[p][0][0], n_recv[p] * 3, MPI_DOUBLE, p, p + nprocs, world, &recv_requests[1][p]);
+            MPI_Irecv(occup_recv[p].data(), n_recv[p], MPI_INT, p, p + nprocs * 2, world, &recv_requests[2][p]);
+            MPI_Irecv(clusterID_recv[p].data(), n_recv[p], MPI_LMP_TAGINT, p, p + nprocs * 3, world, &recv_requests[3][p]);
+        }
+    }
+
+    if (nprocs > 1) {
+        for (int i = 0; i < 4; i++) {
+            MPI_Waitall(nprocs, send_requests[i].data(), send_statuses[i].data());
+            MPI_Waitall(nprocs, recv_requests[i].data(), recv_statuses[i].data());
+        }
+    }
+}
+
+void ComputeFrenkel::unpack_ghost_sites(
+    const std::vector<int> &n_recv,
+    const std::vector<std::vector<tagint>> &tag_recv,
+    const std::vector<std::vector<std::array<double, 3>>> &x_recv,
+    const std::vector<std::vector<int>> &occup_recv,
+    const std::vector<std::vector<tagint>> &clusterID_recv)
+{
+    const int nprocs = comm->nprocs;
+
+    nlatghosts = 0;
+    for (int p = 0; p < nprocs; p++) nlatghosts += n_recv[p];
+
+    memory->grow(latsites, nlatsites + nlatghosts, 3, "ComputeFrenkel:sites2");
+    memory->grow(site_tag, nlatsites + nlatghosts, "ComputeFrenkel:site_tag2");
+    memory->grow(noccupants, nlatsites + nlatghosts, "ComputeFrenkel:noccupants2");
+    if (clusterID) memory->grow(clusterID, nlatsites + nlatghosts, "ComputeFrenkel:clusterID2");
+
+    int kk = nlatsites;
+    for (int p = 0; p < nprocs; p++) {
+        for (int i = 0; i < n_recv[p]; i++) {
+            site_tag[kk] = tag_recv[p][i];
+            latsites[kk][0] = x_recv[p][i][0];
+            latsites[kk][1] = x_recv[p][i][1];
+            latsites[kk][2] = x_recv[p][i][2];
+            noccupants[kk] = occup_recv[p][i];
+            if (clusterID) clusterID[kk] = clusterID_recv[p][i];
+            kk++;
+        }
+    }
+}
+
 void ComputeFrenkel::exchange_lattice_ghosts()
 {
-  // Exchange sites within one cutoff distance of the edge of the box with
-  // adjacent processes.  Quantities exchanged:  site tag, site coordinates,
-  // cluster ID's, and site occupancies.
+    const int nprocs = comm->nprocs;
+    const int NINCR = 100;
+    int max_size = NINCR;
 
-  const int me = comm->me;
-  const int nprocs = comm->nprocs;
-  tagint **tag_send;
-  tagint **tag_recv;
-  tagint **clusterID_send;
-  tagint **clusterID_recv;
-  double ***x_send;
-  double ***x_recv;
-  int **occup_send;
-  int **occup_recv;
-  int *n_send;
-  int *n_recv;
-  const int NINCR = 100;
-  int max_size = NINCR;
-  int *idx;
+    std::vector<int> n_send(nprocs, 0);
+    std::vector<int> n_recv(nprocs, 0);
+    std::vector<int> idx(nprocs, 0);
 
-  nlatghosts = 0;
-  n_send = new int[nprocs];
-  n_recv = new int[nprocs];
-  idx = new int[nprocs];
-  memory->create(tag_send, nprocs, max_size, "ComputeFrenkel:tag_send");
-  memory->create(x_send, nprocs, max_size, 3, "ComputeFrenkel:x_send");
-  memory->create(occup_send, nprocs, max_size, "ComputeFrenkel:occup_send");
-  memory->create(clusterID_send, nprocs, max_size, "ComputeFrenkel:clusterID_send");
-  for (int p = 0; p < nprocs; p++) idx[p] = n_send[p] = n_recv[p] = 0;
-  for (int i = 0; i < nprocs * max_size; i++) tag_send[0][i] = -1;
-  for (int i = 0; i < nprocs * max_size * 3; i++) x_send[0][0][i] = 0.0;
-  for (int i = 0; i < nprocs * max_size; i++) occup_send[0][i] = 0;
-  for (int i = 0; i < nprocs * max_size; i++) clusterID_send[0][i] = 0;
+    std::vector<std::vector<tagint>> tag_send(nprocs, std::vector<tagint>(max_size, -1));
+    std::vector<std::vector<std::array<double, 3>>> x_send(nprocs, std::vector<std::array<double, 3>>(max_size, {0.0, 0.0, 0.0}));
+    std::vector<std::vector<int>> occup_send(nprocs, std::vector<int>(max_size, 0));
+    std::vector<std::vector<tagint>> clusterID_send(nprocs, std::vector<tagint>(max_size, 0));
 
-  // Find out which sites are near the boundaries
-  // and which processes those boundaries correspond to.
-  double dr[2][3];
-  bool *already_sent = new bool[nprocs];
-  for (int k = 0; k < nlatsites; k++) {
-    dr[0][0] = latsites[k][0] - domain->sublo[0];
-    dr[0][1] = latsites[k][1] - domain->sublo[1];
-    dr[0][2] = latsites[k][2] - domain->sublo[2];
-    dr[1][0] = domain->subhi[0] - latsites[k][0];
-    dr[1][1] = domain->subhi[1] - latsites[k][1];
-    dr[1][2] = domain->subhi[2] - latsites[k][2];
+    pack_ghost_sites(max_size, n_send, idx, tag_send, x_send, occup_send, clusterID_send);
 
-    // Prepare list of processes to which we've sent this site to (to avoid
-    // duplication)
-    for (int p = 0; p < nprocs; p++) already_sent[p] = false;
+    exchange_ghost_counts(n_send, n_recv);
 
-    // Test processes in all 27 directions from this one
-    for (int ix = -1; ix <= 1; ix++) {
-      // If at the end of the domain, ignore those directions unless
-      // box is periodic in that direction
-      if (ix == -1 && comm->myloc[0] == 0 && !domain->xperiodic) continue;
-      if (ix == 1 && comm->myloc[0] == comm->procgrid[0] - 1 && !domain->xperiodic) continue;
-      if (ix == -1 && dr[0][0] > cutoff + SMALL) continue;
-      if (ix == 1 && dr[1][0] > cutoff + SMALL) continue;
-      for (int iy = -1; iy <= 1; iy++) {
-        if (iy == -1 && comm->myloc[1] == 0 && !domain->yperiodic) continue;
-        if (iy == 1 && comm->myloc[1] == comm->procgrid[1] - 1 && !domain->yperiodic) continue;
-        if (iy == -1 && dr[0][1] > cutoff + SMALL) continue;
-        if (iy == 1 && dr[1][1] > cutoff + SMALL) continue;
-        for (int iz = -1; iz <= 1; iz++) {
-          if (ix == 0 && iy == 0 && iz == 0) continue;
-          if (iz == -1 && comm->myloc[2] == 0 && !domain->zperiodic) continue;
-          if (iz == 1 && comm->myloc[2] == comm->procgrid[2] - 1 && !domain->zperiodic) continue;
-          if (iz == -1 && dr[0][2] > cutoff + SMALL) continue;
-          if (iz == 1 && dr[1][2] > cutoff + SMALL) continue;
-          // Should only get here when exchanging with an adjacent process
-          int p = process_neighbor(ix, iy, iz);
-          // Don't add site to process multiple times
-          if (already_sent[p]) continue;
-          n_send[p] += 1;
-          if (n_send[p] > max_size) {    // Grow arrays if necessary
-            this->reallocate_array(tag_send, nprocs, max_size, nprocs, max_size + NINCR);
-            this->reallocate_array(x_send, nprocs, max_size, 3, nprocs, max_size + NINCR, 3);
-            this->reallocate_array(occup_send, nprocs, max_size, nprocs, max_size + NINCR);
-            this->reallocate_array(clusterID_send, nprocs, max_size, nprocs, max_size + NINCR);
-            max_size += NINCR;
-          }
-          tag_send[p][idx[p]] = site_tag[k];
-          occup_send[p][idx[p]] = noccupants[k];
-          if (clusterID) clusterID_send[p][idx[p]] = clusterID[k];
-          x_send[p][idx[p]][0] = latsites[k][0];
-          x_send[p][idx[p]][1] = latsites[k][1];
-          x_send[p][idx[p]][2] = latsites[k][2];
-          idx[p] += 1;
-          already_sent[p] = true;
-        }
-      }
-    }
-  }
-  delete[] already_sent;
+    std::vector<std::vector<tagint>> tag_recv;
+    std::vector<std::vector<std::array<double, 3>>> x_recv;
+    std::vector<std::vector<int>> occup_recv;
+    std::vector<std::vector<tagint>> clusterID_recv;
 
-  // Send your sites to them and get theirs in return
-  MPI_Request *send_request = new MPI_Request[nprocs]();
-  MPI_Request *recv_request = new MPI_Request[nprocs]();
-  send_request[me] = MPI_REQUEST_NULL;
-  recv_request[me] = MPI_REQUEST_NULL;
-  for (int p = 0; p < nprocs; p++) {
-    if (p == me)
-      n_recv[p] = n_send[p];
-    else {
-      MPI_Isend(&n_send[p], 1, MPI_INT, p, me, world, &send_request[p]);
-      MPI_Irecv(&n_recv[p], 1, MPI_INT, p, p, world, &recv_request[p]);
-    }
-  }
-  MPI_Status *send_status = new MPI_Status[nprocs]();
-  MPI_Status *recv_status = new MPI_Status[nprocs]();
-  //  for ( int i = 0; i < nprocs; i++ )
-  //    send_status[i] = recv_status[i] = MPI_Status();
-  if (nprocs > 1) {
-    MPI_Waitall(nprocs, send_request, send_status);
-    MPI_Waitall(nprocs, recv_request, recv_status);
-  }
+    exchange_ghost_data(n_send, n_recv, tag_send, x_send, occup_send, clusterID_send,
+                        tag_recv, x_recv, occup_recv, clusterID_recv);
 
-  max_size = 0;
-  for (int p = 0; p < nprocs; p++) max_size = MAX(max_size, n_recv[p]);
-  if (max_size == 0) {
-    memory->destroy(tag_send);
-    memory->destroy(x_send);
-    memory->destroy(occup_send);
-    memory->destroy(clusterID_send);
-    delete[] n_send;
-    delete[] n_recv;
-    delete[] idx;
-    delete[] send_request;
-    delete[] recv_request;
-    delete[] send_status;
-    delete[] recv_status;
-    return;    // Should only happen if regions don't cross domain boundaries
-  }
-  memory->create(tag_recv, nprocs, max_size, "ComputeFrenkel:tag_recv");
-  memory->create(x_recv, nprocs, max_size, 3, "ComputeFrenkel:x_recv");
-  memory->create(occup_recv, nprocs, max_size, "ComputeFrenkel:occup_recv");
-  memory->create(clusterID_recv, nprocs, max_size, "ComputeFrenkel:clusterID_recv");
-  for (int i = 0; i < nprocs * max_size; i++) tag_recv[0][i] = 0;
-  for (int i = 0; i < nprocs * max_size; i++) occup_recv[0][i] = 0;
-  for (int i = 0; i < nprocs * max_size * 3; i++) x_recv[0][0][i] = 0.0;
-  for (int i = 0; i < nprocs * max_size; i++) clusterID_recv[0][i] = 0;
-  MPI_Request *send_request_x = new MPI_Request[nprocs]();
-  MPI_Request *recv_request_x = new MPI_Request[nprocs]();
-  MPI_Request *send_request_o = new MPI_Request[nprocs]();
-  MPI_Request *recv_request_o = new MPI_Request[nprocs]();
-  MPI_Request *send_request_c = new MPI_Request[nprocs]();
-  MPI_Request *recv_request_c = new MPI_Request[nprocs]();
-  MPI_Status *send_status_x = new MPI_Status[nprocs]();
-  MPI_Status *recv_status_x = new MPI_Status[nprocs]();
-  MPI_Status *send_status_o = new MPI_Status[nprocs]();
-  MPI_Status *recv_status_o = new MPI_Status[nprocs]();
-  MPI_Status *send_status_c = new MPI_Status[nprocs]();
-  MPI_Status *recv_status_c = new MPI_Status[nprocs]();
-  send_request[me] = MPI_REQUEST_NULL;
-  recv_request[me] = MPI_REQUEST_NULL;
-  send_request_x[me] = MPI_REQUEST_NULL;
-  recv_request_x[me] = MPI_REQUEST_NULL;
-  send_request_o[me] = MPI_REQUEST_NULL;
-  recv_request_o[me] = MPI_REQUEST_NULL;
-  send_request_c[me] = MPI_REQUEST_NULL;
-  recv_request_c[me] = MPI_REQUEST_NULL;
-  for (int p = 0; p < nprocs; p++) {
-    if (p == me) {    // Don't talk to yourself, just copy
-      for (int i = 0; i < n_send[p]; i++) {
-        tag_recv[p][i] = tag_send[p][i];
-        occup_recv[p][i] = occup_send[p][i];    // FIXME - which one should this be?
-        //occup_recv[p][i] += occup_send[p][i];
-        clusterID_recv[p][i] = clusterID_send[p][i];
-        x_recv[p][i][0] = x_send[p][i][0];
-        x_recv[p][i][1] = x_send[p][i][1];
-        x_recv[p][i][2] = x_send[p][i][2];
-      }
-      continue;
-    }
-    // First send...
-    if (n_send[p] > 0) {
-      MPI_Isend(tag_send[p], n_send[p], MPI_LMP_TAGINT, p, me, world, &send_request[p]);
-      MPI_Isend(x_send[p][0], n_send[p] * 3, MPI_DOUBLE, p, me + nprocs, world, &send_request_x[p]);
-      MPI_Isend(occup_send[p], n_send[p], MPI_INT, p, me + nprocs * 2, world, &send_request_o[p]);
-      MPI_Isend(clusterID_send[p], n_send[p], MPI_LMP_TAGINT, p, me + nprocs * 3, world,
-                &send_request_c[p]);
-    } else {
-      send_request[p] = MPI_REQUEST_NULL;
-      send_request_x[p] = MPI_REQUEST_NULL;
-      send_request_o[p] = MPI_REQUEST_NULL;
-      send_request_c[p] = MPI_REQUEST_NULL;
-    }
-    // ...now receive
-    if (n_recv[p] > 0) {
-      MPI_Irecv(tag_recv[p], n_recv[p], MPI_LMP_TAGINT, p, p, world, &recv_request[p]);
-      MPI_Irecv(x_recv[p][0], n_recv[p] * 3, MPI_DOUBLE, p, p + nprocs, world, &recv_request_x[p]);
-      MPI_Irecv(occup_recv[p], n_recv[p], MPI_INT, p, p + nprocs * 2, world, &recv_request_o[p]);
-      MPI_Irecv(clusterID_recv[p], n_recv[p], MPI_LMP_TAGINT, p, p + nprocs * 3, world,
-                &recv_request_c[p]);
-    } else {
-      recv_request[p] = MPI_REQUEST_NULL;
-      recv_request_x[p] = MPI_REQUEST_NULL;
-      recv_request_o[p] = MPI_REQUEST_NULL;
-      recv_request_c[p] = MPI_REQUEST_NULL;
-    }
-  }
-  if (nprocs > 1) {
-    MPI_Waitall(nprocs, send_request, send_status);
-    MPI_Waitall(nprocs, recv_request, recv_status);
-    MPI_Waitall(nprocs, send_request_x, send_status_x);
-    MPI_Waitall(nprocs, recv_request_x, recv_status_x);
-    MPI_Waitall(nprocs, send_request_o, send_status_o);
-    MPI_Waitall(nprocs, recv_request_o, recv_status_o);
-    MPI_Waitall(nprocs, send_request_c, send_status_c);
-    MPI_Waitall(nprocs, recv_request_c, recv_status_c);
-  }
-
-  // Reallocate the necessary memory
-  nlatghosts = 0;
-  for (int p = 0; p < nprocs; p++) nlatghosts += n_recv[p];
-  memory->grow(latsites, nlatsites + nlatghosts, 3, "ComputeFrenkel:sites2");
-  memory->grow(site_tag, nlatsites + nlatghosts, "ComputeFrenkel:site_tag2");
-  memory->grow(noccupants, nlatsites + nlatghosts, "ComputeFrenkel:noccupants2");
-  if (clusterID) memory->grow(clusterID, nlatsites + nlatghosts, "ComputeFrenkel:clusterID2");
-
-  // Update latsites, site_tag, clusterID, and nlatghosts
-  int kk = nlatsites;
-  for (int p = 0; p < nprocs; p++) {
-    for (int i = 0; i < n_recv[p]; i++) {
-      site_tag[kk] = tag_recv[p][i];
-      latsites[kk][0] = x_recv[p][i][0];
-      latsites[kk][1] = x_recv[p][i][1];
-      latsites[kk][2] = x_recv[p][i][2];
-      noccupants[kk] = occup_recv[p][i];
-      if (clusterID) clusterID[kk] = clusterID_recv[p][i];
-      kk++;
-    }
-  }
-
-  // Clean up
-  memory->destroy(tag_send);
-  memory->destroy(x_send);
-  memory->destroy(occup_send);
-  memory->destroy(clusterID_send);
-  memory->destroy(tag_recv);
-  memory->destroy(x_recv);
-  memory->destroy(occup_recv);
-  memory->destroy(clusterID_recv);
-  delete[] n_send;
-  delete[] n_recv;
-  delete[] idx;
-  delete[] send_request;
-  delete[] recv_request;
-  delete[] send_request_x;
-  delete[] recv_request_x;
-  delete[] send_request_o;
-  delete[] recv_request_o;
-  delete[] send_request_c;
-  delete[] recv_request_c;
-  delete[] send_status;
-  delete[] recv_status;
-  delete[] send_status_x;
-  delete[] recv_status_x;
-  delete[] send_status_o;
-  delete[] recv_status_o;
-  delete[] send_status_c;
-  delete[] recv_status_c;
+    unpack_ghost_sites(n_recv, tag_recv, x_recv, occup_recv, clusterID_recv);
 }
 
 /****************************************************************************/
