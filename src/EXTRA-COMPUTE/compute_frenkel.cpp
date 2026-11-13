@@ -807,40 +807,29 @@ int ComputeFrenkel::compute_image(int *&objs, double **&parms)
     if (invoked_find_defects != update->ntimestep) find_defects();
     if (invoked_find_clusters != update->ntimestep) find_clusters();
 
-    // only draw clusters whose center is owned by this subdomain, so each
-    // defect is rendered exactly once when running in parallel
-    int nowned = 0;
-    for (int j = 0; j < noccupied; j++) {
-      double *c = cluster_center[j];
-      if (c[0] >= domain->sublo[0] && c[0] < domain->subhi[0] && c[1] >= domain->sublo[1] &&
-          c[1] < domain->subhi[1] && c[2] >= domain->sublo[2] && c[2] < domain->subhi[2])
-        nowned++;
-    }
-
     memory->destroy(image_objvec);
     memory->destroy(image_objarray);
-    int alloc = (nowned > 0) ? nowned : 1;
+    int alloc = (noccupied > 0) ? noccupied : 1;
     memory->create(image_objvec, alloc, "ComputeFrenkel:image_objvec");
     memory->create(image_objarray, alloc, 5, "ComputeFrenkel:image_objarray");
 
-    double a = domain->lattice->xlattice;
-    if (domain->lattice->ylattice < a) a = domain->lattice->ylattice;
-    if (domain->lattice->zlattice < a) a = domain->lattice->zlattice;
+    double a = std::min({domain->lattice->xlattice, domain->lattice->ylattice, domain->lattice->zlattice});
     double diam = 0.6 * a;
 
     int n = 0;
     for (int j = 0; j < noccupied; j++) {
       double *c = cluster_center[j];
-      if (!(c[0] >= domain->sublo[0] && c[0] < domain->subhi[0] && c[1] >= domain->sublo[1] &&
-            c[1] < domain->subhi[1] && c[2] >= domain->sublo[2] && c[2] < domain->subhi[2]))
-        continue;
-      image_objvec[n] = Graphics::SPHERE;
-      image_objarray[n][0] = (cluster_size[j] < 0) ? 1.0 : 2.0;
-      image_objarray[n][1] = c[0];
-      image_objarray[n][2] = c[1];
-      image_objarray[n][3] = c[2];
-      image_objarray[n][4] = diam;
-      n++;
+      if (c[0] >= domain->sublo[0] && c[0] < domain->subhi[0] &&
+          c[1] >= domain->sublo[1] && c[1] < domain->subhi[1] &&
+          c[2] >= domain->sublo[2] && c[2] < domain->subhi[2]) {
+        image_objvec[n] = Graphics::SPHERE;
+        image_objarray[n][0] = (cluster_size[j] < 0) ? 1.0 : 2.0;
+        image_objarray[n][1] = c[0];
+        image_objarray[n][2] = c[1];
+        image_objarray[n][3] = c[2];
+        image_objarray[n][4] = diam;
+        n++;
+      }
     }
     image_nmax = n;
   }
